@@ -85,6 +85,7 @@ class ReferenceVerification(BaseModel):
     conflicts: List[ConflictItem] = Field(default_factory=list)
     sources_found: List[str] = Field(default_factory=list)
     source_links: Dict[str, str] = Field(default_factory=dict)
+    citation_suggestions: Dict[str, str] = Field(default_factory=dict)
 
 
 class AnchorVerification(BaseModel):

@@ -480,6 +480,11 @@ button {
   flex-wrap: wrap;
 }
 
+.tiny-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
 .item-link {
   font-size: 12px;
   color: #185579;
@@ -512,6 +517,55 @@ button {
   margin-top: 6px;
   padding-top: 6px;
   border-top: 1px dashed #d8c9b1;
+}
+
+.citation-tool {
+  margin-top: 6px;
+  border: 1px dashed #cfbeaa;
+  border-radius: 8px;
+  background: #fffefb;
+  padding: 6px;
+}
+
+.citation-tool-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #2f4b61;
+}
+
+.citation-tool-controls {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.citation-style-select {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #cbbca7;
+  border-radius: 7px;
+  background: #fff;
+  color: #1f2e3f;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+.citation-preview {
+  margin-top: 5px;
+  border-radius: 7px;
+  background: #f7f3ea;
+  padding: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #33495e;
+  word-break: break-word;
+}
+
+.citation-tool.empty .citation-tool-empty {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #6a7b8d;
 }
 
 .subsection-box {

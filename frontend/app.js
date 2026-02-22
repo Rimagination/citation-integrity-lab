@@ -17,6 +17,25 @@ const state = {
   analysis: null,
   mode: "full",
   activeAnchorId: null,
+  citationByRef: {},
+};
+
+const CITATION_STYLE_ORDER = [
+  "apa",
+  "modern-language-association",
+  "china-national-standard-gb-t-7714-2015-numeric",
+  "china-national-standard-gb-t-7714-2015-author-date",
+  "ieee",
+  "chicago-author-date",
+];
+
+const CITATION_STYLE_LABELS = {
+  apa: "APA",
+  "modern-language-association": "MLA",
+  "china-national-standard-gb-t-7714-2015-numeric": "国标 GB/T 7714（顺序编码）",
+  "china-national-standard-gb-t-7714-2015-author-date": "国标 GB/T 7714（著者-出版年）",
+  ieee: "IEEE",
+  "chicago-author-date": "Chicago",
 };
 
 const inputText = document.getElementById("inputText");
@@ -163,6 +182,69 @@ function buildRepositoryLinks(doi, sourceLinks) {
   }
 
   return links;
+}
+
+function citationStyleLabel(styleKey) {
+  return CITATION_STYLE_LABELS[styleKey] || styleKey;
+}
+
+function orderedCitationStyles(suggestions) {
+  const keys = Object.keys(suggestions || {});
+  const ordered = CITATION_STYLE_ORDER.filter((key) => keys.includes(key));
+  for (const key of keys) {
+    if (!ordered.includes(key)) {
+      ordered.push(key);
+    }
+  }
+  return ordered;
+}
+
+function citationTextFor(refId, style) {
+  const suggestionMap = state.citationByRef?.[String(refId)] || {};
+  return suggestionMap[String(style)] || "";
+}
+
+function renderCitationTool(referenceResult) {
+  const refId = String(referenceResult?.ref_id || "");
+  const suggestions = referenceResult?.citation_suggestions || {};
+  const styles = orderedCitationStyles(suggestions);
+  if (!refId || !styles.length) {
+    return `<div class="citation-tool empty">
+      <div class="citation-tool-title">标准格式建议（按 DOI）</div>
+      <div class="citation-tool-empty">未获取到 DOI 标准引文。</div>
+    </div>`;
+  }
+
+  const defaultStyle = styles[0];
+  const preview = suggestions[defaultStyle] || "";
+  const optionsHtml = styles
+    .map(
+      (style) =>
+        `<option value="${escapeHtml(style)}">${escapeHtml(citationStyleLabel(style))}</option>`
+    )
+    .join("");
+
+  return `<div class="citation-tool" data-ref-id="${escapeHtml(refId)}">
+    <div class="citation-tool-title">标准格式建议（按 DOI）</div>
+    <div class="citation-tool-controls">
+      <select class="citation-style-select">${optionsHtml}</select>
+      <button type="button" class="ghost-btn tiny-btn copy-citation-btn">复制</button>
+    </div>
+    <div class="citation-preview">${escapeHtml(preview)}</div>
+  </div>`;
+}
+
+function updateCitationPreview(toolNode, style) {
+  if (!toolNode) {
+    return;
+  }
+  const refId = toolNode.dataset.refId || "";
+  const previewNode = toolNode.querySelector(".citation-preview");
+  if (!previewNode) {
+    return;
+  }
+  const citationText = citationTextFor(refId, style);
+  previewNode.textContent = citationText || "当前格式暂无可用引文。";
 }
 
 function updateModeButton() {
@@ -354,6 +436,7 @@ function renderReferenceItems(analysis) {
         <div class="item-sub">${escapeHtml(truncate(reason, 120))}</div>
         <div class="item-sub">命中源：${escapeHtml(sourceText)}</div>
         ${renderLinkBlock(result, reference)}
+        ${renderCitationTool(result)}
         ${renderConflictList(result?.conflicts || [])}
       </div>`;
     })
@@ -432,6 +515,7 @@ function renderAnchorEvidence(anchorResult) {
         <div class="item-sub">${escapeHtml(truncate(referenceResult.reason || "无说明。", 120))}</div>
         <div class="item-sub">命中源：${escapeHtml(sourceText)}</div>
         ${renderLinkBlock(referenceResult, null)}
+        ${renderCitationTool(referenceResult)}
         ${renderConflictList(referenceResult.conflicts || [])}
       </div>`;
     })
@@ -486,6 +570,10 @@ function setActiveAnchor(anchorId) {
 
 function renderAnalysis(analysis) {
   state.analysis = analysis;
+  state.citationByRef = {};
+  for (const [refId, item] of Object.entries(analysis.reference_results || {})) {
+    state.citationByRef[String(refId)] = item?.citation_suggestions || {};
+  }
   const anchorMap = new Map();
   for (const result of analysis.anchor_results || []) {
     anchorMap.set(result.anchor_id, result);
@@ -517,6 +605,36 @@ function renderAnalysis(analysis) {
     state.activeAnchorId = null;
   }
   runState.textContent = `完成：引用 ${anchorCount}，文献 ${refCount}。`;
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text || "").trim();
+  if (!value) {
+    return false;
+  }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch (_err) {
+    // ignore and fallback
+  }
+
+  try {
+    const area = document.createElement("textarea");
+    area.value = value;
+    area.setAttribute("readonly", "true");
+    area.style.position = "fixed";
+    area.style.left = "-9999px";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(area);
+    return !!ok;
+  } catch (_err) {
+    return false;
+  }
 }
 
 async function runAnalysis() {
@@ -559,8 +677,37 @@ sampleBtn.addEventListener("click", () => {
 
 analyzeBtn.addEventListener("click", runAnalysis);
 
-detailPanel.addEventListener("click", (event) => {
+detailPanel.addEventListener("change", (event) => {
+  const select = event.target.closest(".citation-style-select");
+  if (!select) {
+    return;
+  }
+  const tool = select.closest(".citation-tool");
+  updateCitationPreview(tool, select.value);
+});
+
+detailPanel.addEventListener("click", async (event) => {
+  const copyBtn = event.target.closest(".copy-citation-btn");
+  if (copyBtn) {
+    const tool = copyBtn.closest(".citation-tool");
+    const select = tool?.querySelector(".citation-style-select");
+    const style = select?.value || "";
+    const refId = tool?.dataset?.refId || "";
+    const citationText = citationTextFor(refId, style);
+    const ok = await copyTextToClipboard(citationText);
+    const prev = copyBtn.textContent;
+    copyBtn.textContent = ok ? "已复制" : "复制失败";
+    setTimeout(() => {
+      copyBtn.textContent = prev || "复制";
+    }, 1300);
+    event.preventDefault();
+    return;
+  }
+
   if (event.target.closest("a")) {
+    return;
+  }
+  if (event.target.closest(".citation-tool")) {
     return;
   }
   const row = event.target.closest(".result-item[data-anchor-id]");

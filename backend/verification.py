@@ -184,6 +184,17 @@ SOURCE_PRIORITY = {
     "semanticscholar": 1,
 }
 
+CITATION_STYLE_ORDER = [
+    "apa",
+    "modern-language-association",
+    "china-national-standard-gb-t-7714-2015-numeric",
+    "china-national-standard-gb-t-7714-2015-author-date",
+    "ieee",
+    "chicago-author-date",
+]
+
+CITATION_SUGGESTION_CACHE: Dict[str, Dict[str, str]] = {}
+
 ECOLOGY_KEYWORDS = {
     "ecology",
     "ecosystem",
@@ -518,6 +529,107 @@ def _extract_datacite_abstract(descriptions: list | None) -> str | None:
     return _clean_spaces(first or "") or None
 
 
+def _fallback_author_list(authors: Sequence[str], max_authors: int = 6) -> str:
+    normalized = [_clean_spaces(item or "") for item in (authors or []) if _clean_spaces(item or "")]
+    if not normalized:
+        return "Unknown"
+    if len(normalized) <= max_authors:
+        return ", ".join(normalized)
+    return f"{', '.join(normalized[:max_authors])}, et al."
+
+
+def _fallback_citation_text(
+    style: str,
+    official: OfficialMetadata,
+    doi: str | None,
+) -> str | None:
+    title = _clean_spaces(official.title or "")
+    year = str(official.year) if official.year else "n.d."
+    journal = _clean_spaces(official.journal or "")
+    authors = _fallback_author_list(official.authors)
+    doi_url = f"https://doi.org/{doi}" if doi else ""
+
+    if not title and not journal:
+        return None
+
+    if style == "apa":
+        return _clean_spaces(f"{authors}. ({year}). {title}. {journal}. {doi_url}")
+    if style == "modern-language-association":
+        return _clean_spaces(f"{authors}. \"{title}.\" {journal}, {year}, {doi_url}.")
+    if style == "ieee":
+        return _clean_spaces(f"{authors}, \"{title},\" {journal}, {year}. {doi_url}")
+    if style == "chicago-author-date":
+        return _clean_spaces(f"{authors}. {year}. \"{title}.\" {journal}. {doi_url}")
+    if style == "china-national-standard-gb-t-7714-2015-numeric":
+        return _clean_spaces(f"{authors}. {title}[J]. {journal}, {year}. DOI:{doi or ''}")
+    if style == "china-national-standard-gb-t-7714-2015-author-date":
+        return _clean_spaces(f"{authors}, {year}. {title}[J]. {journal}. DOI:{doi or ''}")
+    return _clean_spaces(f"{authors}. {title}. {journal}, {year}. {doi_url}")
+
+
+async def _fetch_doi_bibliography(
+    client: httpx.AsyncClient,
+    doi: str,
+    style: str,
+) -> str | None:
+    url = f"https://doi.org/{quote(doi, safe='/')}"
+    headers = dict(HTTP_HEADERS)
+    headers["Accept"] = f"text/x-bibliography; style={style}"
+    try:
+        response = await client.get(url, headers=headers, timeout=10.0)
+    except httpx.HTTPError:
+        return None
+
+    if response.status_code >= 400:
+        return None
+    text = _clean_spaces(response.text)
+    if not text:
+        return None
+    # Some DOI resolvers return JSON error payloads with 200.
+    if text.startswith("{") and "message-type" in text and "error" in text.lower():
+        return None
+    return text
+
+
+async def _build_citation_suggestions(
+    client: httpx.AsyncClient,
+    official: OfficialMetadata | None,
+    doi_like: str | None,
+) -> Dict[str, str]:
+    doi = _normalize_doi(doi_like)
+    if not doi:
+        return {}
+    if doi in CITATION_SUGGESTION_CACHE:
+        return dict(CITATION_SUGGESTION_CACHE[doi])
+
+    tasks = {
+        style: asyncio.create_task(_fetch_doi_bibliography(client, doi, style))
+        for style in CITATION_STYLE_ORDER
+    }
+
+    suggestions: Dict[str, str] = {}
+    for style in CITATION_STYLE_ORDER:
+        try:
+            citation_text = await tasks[style]
+        except Exception:
+            citation_text = None
+        if citation_text:
+            suggestions[style] = citation_text
+
+    # Backfill missing styles so UI always has consistent options.
+    if official:
+        for style in CITATION_STYLE_ORDER:
+            if style in suggestions:
+                continue
+            fallback_text = _fallback_citation_text(style, official, doi)
+            if fallback_text:
+                suggestions[style] = fallback_text
+
+    if suggestions:
+        CITATION_SUGGESTION_CACHE[doi] = dict(suggestions)
+    return suggestions
+
+
 async def _fetch_json(client: httpx.AsyncClient, url: str, params: dict | None = None) -> dict | None:
     try:
         response = await client.get(url, params=params, timeout=12.0)
@@ -741,10 +853,37 @@ async def _query_semanticscholar(
 def _metadata_conflicts(reference: ParseReference, official: OfficialMetadata) -> Tuple[List[ConflictItem], str, float]:
     conflicts: List[ConflictItem] = []
     critical = False
+    user_doi = _normalize_doi(reference.doi)
+    official_doi = _normalize_doi(official.doi)
+    doi_aligned = bool(user_doi and official_doi and user_doi == official_doi)
+
+    # DOI mismatch is always critical.
+    if user_doi and official_doi and user_doi != official_doi:
+        conflicts.append(
+            ConflictItem(
+                field="doi",
+                user_value=user_doi,
+                official_value=official_doi,
+                level="critical",
+            )
+        )
+        critical = True
 
     if reference.title and official.title:
         title_sim = _text_similarity(reference.title, official.title)
-        if title_sim < 0.8:
+        if doi_aligned:
+            # When DOI is aligned, style differences (APA/MLA/GB) are tolerated.
+            if title_sim < 0.45:
+                conflicts.append(
+                    ConflictItem(
+                        field="title",
+                        user_value=reference.title,
+                        official_value=official.title,
+                        similarity=round(title_sim, 3),
+                        level="warning",
+                    )
+                )
+        elif title_sim < 0.8:
             conflicts.append(
                 ConflictItem(
                     field="title",
@@ -768,7 +907,7 @@ def _metadata_conflicts(reference: ParseReference, official: OfficialMetadata) -
 
     if reference.year and official.year:
         year_gap = abs(reference.year - official.year)
-        if year_gap > 1:
+        if year_gap > 1 and not doi_aligned:
             conflicts.append(
                 ConflictItem(
                     field="year",
@@ -778,7 +917,7 @@ def _metadata_conflicts(reference: ParseReference, official: OfficialMetadata) -
                 )
             )
             critical = True
-        elif year_gap == 1:
+        elif year_gap >= 1:
             conflicts.append(
                 ConflictItem(
                     field="year",
@@ -788,23 +927,11 @@ def _metadata_conflicts(reference: ParseReference, official: OfficialMetadata) -
                 )
             )
 
-    user_doi = _normalize_doi(reference.doi)
-    official_doi = _normalize_doi(official.doi)
-    if user_doi and official_doi and user_doi != official_doi:
-        conflicts.append(
-            ConflictItem(
-                field="doi",
-                user_value=user_doi,
-                official_value=official_doi,
-                level="critical",
-            )
-        )
-        critical = True
-
     if reference.first_author and official.authors:
         official_first_author = official.authors[0].split(",", maxsplit=1)[0]
         author_sim = _text_similarity(reference.first_author, official_first_author)
-        if author_sim < 0.5:
+        threshold = 0.35 if doi_aligned else 0.5
+        if author_sim < threshold:
             conflicts.append(
                 ConflictItem(
                     field="first_author",
@@ -818,8 +945,8 @@ def _metadata_conflicts(reference: ParseReference, official: OfficialMetadata) -
     if critical:
         return conflicts, "red", 0.2
     if conflicts:
-        return conflicts, "yellow", 0.6
-    return conflicts, "green", 0.95
+        return conflicts, "yellow", 0.68 if doi_aligned else 0.6
+    return conflicts, "green", 0.97 if doi_aligned else 0.95
 
 
 def _pick_official(
@@ -957,9 +1084,15 @@ async def verify_reference_metadata(
             conflicts=[],
             sources_found=found_sources,
             source_links=source_links,
+            citation_suggestions={},
         )
 
     conflicts, status, score = _metadata_conflicts(reference, official)
+    citation_suggestions = await _build_citation_suggestions(
+        client,
+        official,
+        official.doi or reference.doi,
+    )
     source_summary = _source_summary(found_sources)
     if status == "green" and len(found_sources) >= 2:
         score = min(0.99, score + 0.02 * (len(found_sources) - 1))
@@ -983,6 +1116,7 @@ async def verify_reference_metadata(
         conflicts=conflicts,
         sources_found=found_sources,
         source_links=source_links,
+        citation_suggestions=citation_suggestions,
     )
 
 

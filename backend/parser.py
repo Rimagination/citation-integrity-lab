@@ -17,6 +17,11 @@ AUTHOR_YEAR_CITATION_CN_RE = re.compile(
     r"（([^（）]{1,100}?[，,]\s*(?:19|20)\d{2}[a-z]?)）"
 )
 SENTENCE_RE = re.compile(r"[^。！？!?\.]+[。！？!?\.]?")
+TITLE_QUOTE_RE = re.compile(r"[“\"《](.+?)[”\"》]")
+STYLE_TYPE_TAG_RE = re.compile(r"\[[A-Za-z\u4e00-\u9fff/]{1,8}\]")
+MLA_DETAIL_RE = re.compile(r"\bvol\.|\bno\.|\bpp\.", re.IGNORECASE)
+GB_TITLE_RE = re.compile(r"[。\.]\s*([^。.\[\]]{4,}?)\s*\[[A-Za-z\u4e00-\u9fff/]{1,8}\]")
+APA_TITLE_RE = re.compile(r"\(\s*(?:19|20)\d{2}[a-z]?\s*\)\.?\s*([^\.]{4,}?)\.")
 
 
 def _clean_spaces(text: str) -> str:
@@ -35,9 +40,14 @@ def _is_reference_like(line: str) -> bool:
     has_doi = bool(DOI_RE.search(candidate))
     starts_with_index = bool(REF_START_RE.match(candidate))
     has_author_signal = bool(
-        re.search(r"\bet al\.|\b[A-Z][a-z]+,\s*[A-Z]|&| and ", candidate)
+        re.search(r"\bet al\.|\b[A-Z][a-z]+,\s*[A-Z]|&| and |等", candidate)
     )
-    return (starts_with_index and has_year) or (has_year and (has_author_signal or has_doi))
+    has_style_tag = bool(STYLE_TYPE_TAG_RE.search(candidate))
+    has_quote_title = bool(TITLE_QUOTE_RE.search(candidate))
+    has_mla_signal = bool(MLA_DETAIL_RE.search(candidate))
+    return (starts_with_index and (has_year or has_doi or has_style_tag)) or (
+        (has_year or has_doi) and (has_author_signal or has_style_tag or has_quote_title or has_mla_signal)
+    )
 
 
 def _is_header_like(line: str) -> bool:
@@ -130,12 +140,19 @@ def _extract_year(cleaned_ref: str) -> int | None:
 
 
 def _extract_authors_segment(cleaned_ref: str, year: int | None) -> str:
-    if year is None:
-        return cleaned_ref.split(".", maxsplit=1)[0].strip()
-    match = YEAR_RE.search(cleaned_ref)
-    if not match:
-        return cleaned_ref.split(".", maxsplit=1)[0].strip()
-    return cleaned_ref[: match.start()].strip(" .;,")
+    quote_match = TITLE_QUOTE_RE.search(cleaned_ref)
+    if quote_match and quote_match.start() > 0:
+        return cleaned_ref[: quote_match.start()].strip(" .;,")
+
+    if year is not None:
+        match = YEAR_RE.search(cleaned_ref)
+        if match and match.start() < 90:
+            return cleaned_ref[: match.start()].strip(" .;,")
+
+    first_dot = re.search(r"[。\.]", cleaned_ref)
+    if first_dot:
+        return cleaned_ref[: first_dot.start()].strip(" .;,")
+    return cleaned_ref.strip(" .;,")
 
 
 def _extract_authors(authors_segment: str) -> List[str]:
@@ -161,21 +178,68 @@ def _extract_first_author(authors: List[str]) -> str | None:
 
 
 def _extract_title(cleaned_ref: str, year: int | None) -> str | None:
+    quote_match = TITLE_QUOTE_RE.search(cleaned_ref)
+    if quote_match:
+        candidate = _clean_spaces(quote_match.group(1))
+        if len(candidate) >= 4:
+            return candidate
+
+    gb_match = GB_TITLE_RE.search(cleaned_ref)
+    if gb_match:
+        candidate = _clean_spaces(gb_match.group(1))
+        if len(candidate) >= 4:
+            return candidate
+
+    apa_match = APA_TITLE_RE.search(cleaned_ref)
+    if apa_match:
+        candidate = _clean_spaces(apa_match.group(1))
+        if len(candidate) >= 4:
+            return candidate
+
     remainder = cleaned_ref
     if year is not None:
-        match = YEAR_RE.search(cleaned_ref)
-        if match:
-            remainder = cleaned_ref[match.end() :]
+        year_match = YEAR_RE.search(cleaned_ref)
+        if year_match and year_match.end() < len(cleaned_ref):
+            remainder = cleaned_ref[year_match.end() :]
 
-    remainder = re.sub(r"^[\)\].,:;\s-]+", "", remainder)
-    parts = [part.strip(" .") for part in re.split(r"\.\s+", remainder) if part.strip(" .")]
-    if not parts:
-        return None
-
+    parts = [part.strip(" .") for part in re.split(r"[。\.]\s*", remainder) if part.strip(" .")]
     for part in parts:
-        if not part.lower().startswith("doi") and len(part) >= 8:
-            return part
-    return parts[0]
+        candidate = _clean_spaces(re.sub(STYLE_TYPE_TAG_RE, "", part))
+        lowered = candidate.lower()
+        if len(candidate) < 6:
+            continue
+        if lowered.startswith("doi") or "http://" in lowered or "https://" in lowered:
+            continue
+        if lowered.startswith("org/10") or re.match(r"^(?:doi:)?\s*10\.", lowered):
+            continue
+        if "/" in candidate and len(candidate) < 20:
+            continue
+        if MLA_DETAIL_RE.search(candidate):
+            continue
+        if re.match(r"^\d{4}", candidate):
+            continue
+        if re.search(r"\b[A-Z][a-z]+,\s*[A-Z]", candidate):
+            continue
+        return candidate
+    return None
+
+
+def _should_start_new_reference_entry(stripped_line: str, current_lines: Sequence[str]) -> bool:
+    if REF_START_RE.match(stripped_line):
+        return True
+    if not current_lines:
+        return True
+    if not _is_reference_like(stripped_line):
+        return False
+
+    current_text = _clean_spaces(" ".join(current_lines))
+    if DOI_RE.search(current_text):
+        return True
+    if YEAR_RE.search(current_text) and re.search(r"[。\.]\s*$", current_lines[-1]):
+        return True
+    if YEAR_RE.search(current_text) and re.match(r"^[A-Z][A-Za-z'`\-]+,\s+[A-Z]", stripped_line):
+        return True
+    return False
 
 
 def parse_reference_section(reference_text: str) -> List[ParseReference]:
@@ -192,7 +256,7 @@ def parse_reference_section(reference_text: str) -> List[ParseReference]:
             continue
         if _is_header_like(stripped):
             continue
-        if REF_START_RE.match(stripped):
+        if _should_start_new_reference_entry(stripped, current):
             if current:
                 entries.append(_clean_spaces(" ".join(current)))
             current = [stripped]
