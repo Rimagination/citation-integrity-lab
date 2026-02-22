@@ -17,6 +17,7 @@ DOI_BRACKET_PAIRS = {
 }
 REF_START_RE = re.compile(r"^\s*(?:\[(\d+)\]|(\d+)[\.\)]|（(\d+)）)\s*")
 YEAR_RE = re.compile(r"(19|20)\d{2}[a-z]?", re.IGNORECASE)
+PAREN_YEAR_RE = re.compile(r"[\(\[\{]\s*((?:19|20)\d{2})[a-z]?\s*[\)\]\}]")
 NUMERIC_CITATION_RE = re.compile(r"\[(\d+(?:\s*[,;\-]\s*\d+)*)\]")
 AUTHOR_YEAR_CITATION_RE = re.compile(
     r"\(([A-Z][^()]{1,100}?,\s*(?:19|20)\d{2}[a-z]?)\)"
@@ -158,11 +159,57 @@ def split_body_and_references(text: str) -> Tuple[str, str]:
 
 
 def _extract_year(cleaned_ref: str) -> int | None:
-    match = YEAR_RE.search(cleaned_ref)
-    if not match:
+    if not cleaned_ref:
         return None
+
+    # Remove URL/DOI tails that may contain year-like segments.
+    scrubbed = re.sub(r"https?://\S+", " ", cleaned_ref, flags=re.IGNORECASE)
+    scrubbed = re.sub(r"\bdoi:\s*10\.\S+", " ", scrubbed, flags=re.IGNORECASE)
+
+    # APA/author-year styles usually keep publication year in parentheses.
+    paren_match = PAREN_YEAR_RE.search(scrubbed)
+    if paren_match:
+        try:
+            return int(paren_match.group(1))
+        except ValueError:
+            pass
+
+    matches = list(YEAR_RE.finditer(scrubbed))
+    if not matches:
+        return None
+
+    def _year_score(match: re.Match[str]) -> tuple[int, int]:
+        start, end = match.start(), match.end()
+        score = 0
+
+        left = scrubbed[max(0, start - 18) : start].lower()
+        right = scrubbed[end : min(len(scrubbed), end + 18)].lower()
+        around = scrubbed[max(0, start - 8) : min(len(scrubbed), end + 8)]
+
+        # Penalize likely title period/range years (e.g., 1990-2018).
+        if re.search(r"\d{4}\s*[-–]\s*\d{4}", around):
+            score -= 4
+        if re.search(r"(from|between|since|期间|至|到)\s*$", left):
+            score -= 2
+
+        # Reward likely publication-year contexts used by citation formats.
+        if re.search(r"(vol\.|no\.|pp\.|issue|卷|期)$", left):
+            score += 2
+        if re.search(r"^[\s,.;:)\]]", right):
+            score += 1
+
+        # Early position fits APA; trailing position fits MLA/GB variants.
+        if start < 120:
+            score += 1
+        if start >= max(0, len(scrubbed) - 80):
+            score += 1
+
+        # Tie-breaker: prefer later year token when scores are equal.
+        return score, start
+
+    best = max(matches, key=_year_score)
     try:
-        return int(match.group(0)[:4])
+        return int(best.group(0)[:4])
     except ValueError:
         return None
 

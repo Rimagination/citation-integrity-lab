@@ -691,6 +691,24 @@ async def _fetch_json(client: httpx.AsyncClient, url: str, params: dict | None =
         return None
 
 
+def _extract_crossref_year(message: dict) -> int | None:
+    def _read_year(field_name: str) -> int | None:
+        parts = (message.get(field_name) or {}).get("date-parts")
+        if parts and isinstance(parts, list) and parts and parts[0]:
+            try:
+                return int(parts[0][0])
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    # Prefer print/publication year for citation matching, then online/issued.
+    for key in ("published-print", "issued", "published-online", "created", "deposited"):
+        year_value = _read_year(key)
+        if year_value:
+            return year_value
+    return None
+
+
 async def _query_crossref(client: httpx.AsyncClient, reference: ParseReference) -> OfficialMetadata | None:
     doi = _normalize_doi(reference.doi)
     payload: dict | None = None
@@ -723,13 +741,7 @@ async def _query_crossref(client: httpx.AsyncClient, reference: ParseReference) 
     elif isinstance(title_field, str):
         title = title_field
 
-    year = None
-    issued = message.get("issued", {}).get("date-parts")
-    if issued and isinstance(issued, list) and issued and issued[0]:
-        try:
-            year = int(issued[0][0])
-        except (TypeError, ValueError):
-            year = None
+    year = _extract_crossref_year(message)
 
     journal = None
     journal_field = message.get("container-title")
@@ -901,12 +913,18 @@ async def _query_semanticscholar(
     )
 
 
-def _metadata_conflicts(reference: ParseReference, official: OfficialMetadata) -> Tuple[List[ConflictItem], str, float]:
+def _metadata_conflicts(
+    reference: ParseReference,
+    official: OfficialMetadata,
+    all_official_years: Sequence[int] | None = None,
+) -> Tuple[List[ConflictItem], str, float]:
     conflicts: List[ConflictItem] = []
     critical = False
     user_doi = _normalize_doi(reference.doi)
     official_doi = _normalize_doi(official.doi)
     doi_aligned = bool(user_doi and official_doi and user_doi == official_doi)
+    title_sim: float | None = None
+    author_sim: float | None = None
 
     # DOI mismatch is always critical.
     if user_doi and official_doi and user_doi != official_doi:
@@ -956,28 +974,6 @@ def _metadata_conflicts(reference: ParseReference, official: OfficialMetadata) -
                 )
             )
 
-    if reference.year and official.year:
-        year_gap = abs(reference.year - official.year)
-        if year_gap > 1 and not doi_aligned:
-            conflicts.append(
-                ConflictItem(
-                    field="year",
-                    user_value=str(reference.year),
-                    official_value=str(official.year),
-                    level="critical",
-                )
-            )
-            critical = True
-        elif year_gap >= 1:
-            conflicts.append(
-                ConflictItem(
-                    field="year",
-                    user_value=str(reference.year),
-                    official_value=str(official.year),
-                    level="warning",
-                )
-            )
-
     if reference.first_author and official.authors:
         official_first_author = official.authors[0].split(",", maxsplit=1)[0]
         author_sim = _text_similarity(reference.first_author, official_first_author)
@@ -990,6 +986,57 @@ def _metadata_conflicts(reference: ParseReference, official: OfficialMetadata) -
                     official_value=official_first_author,
                     similarity=round(author_sim, 3),
                     level="warning",
+                )
+            )
+
+    if reference.year and official.year:
+        known_years = sorted(
+            {
+                int(year)
+                for year in (all_official_years or [])
+                if isinstance(year, int)
+            }
+        )
+
+        # If any trusted source agrees with user year, treat as valid variant.
+        if reference.year in known_years:
+            year_gap = 0
+        else:
+            year_gap = abs(reference.year - official.year)
+
+        strong_identity = doi_aligned or (
+            (title_sim is not None and title_sim >= 0.9)
+            and (author_sim is None or author_sim >= 0.45)
+        )
+
+        # Allow +/-1 year drift (online-first vs print).
+        # For strong identity pairs (title/author/doi), tolerate up to 2-year drift.
+        if year_gap <= 1 or (strong_identity and year_gap <= 2):
+            pass
+        else:
+            official_year_value = str(official.year)
+            if known_years:
+                years_text = "/".join(str(item) for item in known_years[:4])
+                if len(known_years) > 4:
+                    years_text += "/..."
+                official_year_value = f"{official.year} (multi:{years_text})"
+
+            level = "warning"
+            weak_identity = (
+                not doi_aligned
+                and (title_sim is None or title_sim < 0.75)
+                and (author_sim is None or author_sim < 0.4)
+            )
+            if year_gap >= 5 and weak_identity:
+                level = "critical"
+                critical = True
+
+            conflicts.append(
+                ConflictItem(
+                    field="year",
+                    user_value=str(reference.year),
+                    official_value=official_year_value,
+                    level=level,
                 )
             )
 
@@ -1138,7 +1185,12 @@ async def verify_reference_metadata(
             citation_suggestions={},
         )
 
-    conflicts, status, score = _metadata_conflicts(reference, official)
+    observed_years = [
+        candidate.year
+        for candidate in source_metadata.values()
+        if candidate and isinstance(candidate.year, int)
+    ]
+    conflicts, status, score = _metadata_conflicts(reference, official, observed_years)
     citation_suggestions = await _build_citation_suggestions(
         client,
         official,
