@@ -128,14 +128,50 @@ function formatSourceNames(items) {
   return (items || []).map((item) => sourceLabel(item));
 }
 
+const DOI_TRAILING_PUNCT_RE = /[.,;:!?'"`，。；：！？]+$/;
+const DOI_BRACKET_PAIRS = {
+  ")": "(",
+  "]": "[",
+  "}": "{",
+  "）": "（",
+  "】": "【",
+};
+
+function countChar(text, char) {
+  return (text || "").split(char).length - 1;
+}
+
+function trimDoiTrailingNoise(value) {
+  let cleaned = String(value || "").trim();
+  if (!cleaned) {
+    return "";
+  }
+  while (cleaned) {
+    const stripped = cleaned.replace(DOI_TRAILING_PUNCT_RE, "").trim();
+    if (stripped !== cleaned) {
+      cleaned = stripped;
+      continue;
+    }
+    const tail = cleaned.slice(-1);
+    const opener = DOI_BRACKET_PAIRS[tail];
+    if (opener && countChar(cleaned, opener) < countChar(cleaned, tail)) {
+      cleaned = cleaned.slice(0, -1).trim();
+      continue;
+    }
+    break;
+  }
+  return cleaned;
+}
+
 function normalizeDoi(doi) {
   if (!doi) {
     return "";
   }
-  return String(doi)
+  const normalized = String(doi)
     .trim()
     .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
     .replace(/^doi:\s*/i, "");
+  return trimDoiTrailingNoise(normalized);
 }
 
 function buildDoiUrl(doi) {

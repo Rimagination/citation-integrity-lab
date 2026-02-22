@@ -29,6 +29,14 @@ HTTP_HEADERS = {
 
 TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z\-]{1,}|[0-9]+(?:\.[0-9]+)?|[\u4e00-\u9fff]{2,}")
 DOI_RE = re.compile(r"(10\.\d{4,9}/[-._;()/:A-Z0-9]+)", re.IGNORECASE)
+DOI_TRAILING_PUNCT_RE = re.compile(r"[.,;:!?\"'`\u3002\uff0c\uff1b\uff1a\uff01\uff1f]+$")
+DOI_BRACKET_PAIRS = {
+    ")": "(",
+    "]": "[",
+    "}": "{",
+    "）": "（",
+    "】": "【",
+}
 HTML_TAG_RE = re.compile(r"<[^>]+>")
 WHITESPACE_RE = re.compile(r"\s+")
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？!?\.])\s+")
@@ -299,16 +307,38 @@ def _strip_html(text: str | None) -> str | None:
     return _clean_spaces(plain)
 
 
+def _trim_trailing_doi_noise(raw: str) -> str:
+    cleaned = _clean_spaces(raw)
+    if not cleaned:
+        return ""
+    while cleaned:
+        stripped = DOI_TRAILING_PUNCT_RE.sub("", cleaned).strip()
+        if stripped != cleaned:
+            cleaned = stripped
+            continue
+        tail = cleaned[-1]
+        opener = DOI_BRACKET_PAIRS.get(tail)
+        if opener and cleaned.count(opener) < cleaned.count(tail):
+            cleaned = cleaned[:-1].rstrip()
+            continue
+        break
+    return cleaned
+
+
 def _normalize_doi(raw: str | None) -> str | None:
     if not raw:
         return None
     candidate = raw.strip()
     candidate = re.sub(r"^https?://(dx\.)?doi\.org/", "", candidate, flags=re.IGNORECASE)
     candidate = re.sub(r"^doi:\s*", "", candidate, flags=re.IGNORECASE)
+    candidate = _trim_trailing_doi_noise(candidate)
+    if not candidate:
+        return None
     match = DOI_RE.search(candidate)
     if match:
-        return match.group(1).lower()
-    return candidate.lower()
+        return _trim_trailing_doi_noise(match.group(1)).lower()
+    fallback = _trim_trailing_doi_noise(candidate).lower()
+    return fallback or None
 
 
 def _char_mix(text: str) -> Tuple[int, int]:

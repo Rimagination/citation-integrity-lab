@@ -7,6 +7,14 @@ from .models import CitationAnchor, ParseReference, ParseResult
 
 
 DOI_RE = re.compile(r"(10\.\d{4,9}/[-._;()/:A-Z0-9]+)", re.IGNORECASE)
+DOI_TRAILING_PUNCT_RE = re.compile(r"[.,;:!?\"'`\u3002\uff0c\uff1b\uff1a\uff01\uff1f]+$")
+DOI_BRACKET_PAIRS = {
+    ")": "(",
+    "]": "[",
+    "}": "{",
+    "）": "（",
+    "】": "【",
+}
 REF_START_RE = re.compile(r"^\s*(?:\[(\d+)\]|(\d+)[\.\)]|（(\d+)）)\s*")
 YEAR_RE = re.compile(r"(19|20)\d{2}[a-z]?", re.IGNORECASE)
 NUMERIC_CITATION_RE = re.compile(r"\[(\d+(?:\s*[,;\-]\s*\d+)*)\]")
@@ -30,6 +38,26 @@ def _clean_spaces(text: str) -> str:
 
 def _normalize_token(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def _normalize_doi_value(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    cleaned = raw.strip()
+    if not cleaned:
+        return None
+    while cleaned:
+        stripped = DOI_TRAILING_PUNCT_RE.sub("", cleaned).strip()
+        if stripped != cleaned:
+            cleaned = stripped
+            continue
+        tail = cleaned[-1]
+        opener = DOI_BRACKET_PAIRS.get(tail)
+        if opener and cleaned.count(opener) < cleaned.count(tail):
+            cleaned = cleaned[:-1].rstrip()
+            continue
+        break
+    return cleaned or None
 
 
 def _is_reference_like(line: str) -> bool:
@@ -283,7 +311,7 @@ def parse_reference_section(reference_text: str) -> List[ParseReference]:
             cleaned = entry[index_match.end() :].strip()
 
         doi_match = DOI_RE.search(cleaned)
-        doi = doi_match.group(1) if doi_match else None
+        doi = _normalize_doi_value(doi_match.group(1) if doi_match else None)
         year = _extract_year(cleaned)
         authors_segment = _extract_authors_segment(cleaned, year)
         authors = _extract_authors(authors_segment)
