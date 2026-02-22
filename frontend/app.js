@@ -492,27 +492,13 @@ function buildDoiVerificationSummary(referenceResult, fallbackReference) {
   return `DOI存在，多源命中（${sourceSummary}），标题/年份整体匹配。`;
 }
 
-function normalizeReasonForCompare(text) {
-  return String(text || "")
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replace(/^doi[^，。；;,.!?！？：:]*[，,:：]/, "")
-    .replace(/[。．,.，；;:：!?！？]/g, "");
-}
-
-function shouldRenderReasonLine(reason, summary) {
-  const reasonNorm = normalizeReasonForCompare(reason);
-  const summaryNorm = normalizeReasonForCompare(summary);
-  if (!reasonNorm) {
-    return false;
+function mergeReferenceDescriptions(summary, reason) {
+  const first = String(summary || "").trim();
+  const second = String(reason || "").trim();
+  if (first && second) {
+    return `${first} 补充：${second}`;
   }
-  if (!summaryNorm) {
-    return true;
-  }
-  if (summaryNorm.includes(reasonNorm) || reasonNorm.includes(summaryNorm)) {
-    return false;
-  }
-  return true;
+  return first || second || "无说明。";
 }
 
 function renderConflictList(conflicts) {
@@ -528,7 +514,11 @@ function renderConflictList(conflicts) {
         item.similarity === null || item.similarity === undefined
           ? ""
           : ` (${Math.round(item.similarity * 100)}%)`;
-      return `<li><strong>${escapeHtml(field)}</strong>: ${escapeHtml(from)} → ${escapeHtml(to)}${sim}</li>`;
+      return `<li><strong>${escapeHtml(field)}</strong>: <span class="conflict-from">${escapeHtml(
+        from
+      )}</span><span class="conflict-arrow">→</span><span class="conflict-to">${escapeHtml(
+        to
+      )}</span>${sim}</li>`;
     })
     .join("");
   return `<ul class="conflict-list">${lines}</ul>`;
@@ -625,16 +615,15 @@ function renderReferenceItems(analysis) {
       const meta = statusMeta(status);
       const title = result?.official?.title || reference.title || reference.raw || "无标题";
       const doiSummary = buildDoiVerificationSummary(result, reference);
-      const reason = result?.reason || "无返回结果。";
-      const showReason = shouldRenderReasonLine(reason, doiSummary);
+      const reason = result?.reason || "";
+      const mergedDescription = mergeReferenceDescriptions(doiSummary, reason);
       return `<div class="result-item status-${status}">
         <div class="item-head">
           <span class="status-chip">[${escapeHtml(reference.ref_id)}] ${meta.text}</span>
           <span class="item-tag">${escapeHtml(result?.label || "未判定")}</span>
         </div>
         <div class="item-title">${escapeHtml(truncate(title, 108))}</div>
-        <div class="item-sub item-summary">${escapeHtml(truncate(doiSummary, 180))}</div>
-        ${showReason ? `<div class="item-sub">${escapeHtml(truncate(reason, 120))}</div>` : ""}
+        <div class="item-sub item-summary">${escapeHtml(truncate(mergedDescription, 260))}</div>
         ${renderLinkBlock(result, reference)}
         ${renderConflictList(result?.conflicts || [])}
       </div>`;
@@ -706,12 +695,11 @@ function renderAnchorEvidence(anchorResult) {
     .map((referenceResult) => {
       const meta = statusMeta(referenceResult.status || "white");
       const doiSummary = buildDoiVerificationSummary(referenceResult, null);
-      const reason = referenceResult.reason || "无说明。";
-      const showReason = shouldRenderReasonLine(reason, doiSummary);
+      const reason = referenceResult.reason || "";
+      const mergedDescription = mergeReferenceDescriptions(doiSummary, reason);
       return `<div class="linked-ref">
         <div class="item-sub"><strong>[${escapeHtml(referenceResult.ref_id)}]</strong> 元数据：${meta.text}</div>
-        <div class="item-sub item-summary">${escapeHtml(truncate(doiSummary, 180))}</div>
-        ${showReason ? `<div class="item-sub">${escapeHtml(truncate(reason, 120))}</div>` : ""}
+        <div class="item-sub item-summary">${escapeHtml(truncate(mergedDescription, 260))}</div>
         ${renderLinkBlock(referenceResult, null)}
         ${renderConflictList(referenceResult.conflicts || [])}
       </div>`;

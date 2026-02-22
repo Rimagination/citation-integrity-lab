@@ -594,6 +594,34 @@ button {
   margin-top: 2px;
 }
 
+.conflict-from,
+.conflict-to {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 6px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.conflict-from {
+  color: #9f2e25;
+  background: #ffe7e4;
+  border: 1px solid #f4b8b2;
+}
+
+.conflict-to {
+  color: #0f6c40;
+  background: #e8f8ef;
+  border: 1px solid #b7dfc8;
+}
+
+.conflict-arrow {
+  display: inline-block;
+  margin: 0 4px;
+  color: #677483;
+  font-weight: 700;
+}
+
 .linked-ref {
   margin-top: 6px;
   padding-top: 6px;
