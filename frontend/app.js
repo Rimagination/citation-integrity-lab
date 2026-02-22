@@ -492,15 +492,6 @@ function buildDoiVerificationSummary(referenceResult, fallbackReference) {
   return `DOI存在，多源命中（${sourceSummary}），标题/年份整体匹配。`;
 }
 
-function mergeReferenceDescriptions(summary, reason) {
-  const first = String(summary || "").trim();
-  const second = String(reason || "").trim();
-  if (first && second) {
-    return `${first} 补充：${second}`;
-  }
-  return first || second || "无说明。";
-}
-
 function renderConflictBlock(conflicts) {
   if (!conflicts || !conflicts.length) {
     return `<div class="item-sub">偏差字段：无</div>`;
@@ -618,15 +609,13 @@ function renderReferenceItems(analysis) {
       const meta = statusMeta(status);
       const title = result?.official?.title || reference.title || reference.raw || "无标题";
       const doiSummary = buildDoiVerificationSummary(result, reference);
-      const reason = result?.reason || "";
-      const mergedDescription = mergeReferenceDescriptions(doiSummary, reason);
       return `<div class="result-item status-${status}">
         <div class="item-head">
           <span class="status-chip">[${escapeHtml(reference.ref_id)}] ${meta.text}</span>
           <span class="item-tag">${escapeHtml(result?.label || "未判定")}</span>
         </div>
         <div class="item-title">${escapeHtml(truncate(title, 108))}</div>
-        <div class="item-sub item-summary">${escapeHtml(truncate(mergedDescription, 260))}</div>
+        <div class="item-sub item-summary">${escapeHtml(truncate(doiSummary, 220))}</div>
         ${renderLinkBlock(result, reference)}
         ${renderConflictBlock(result?.conflicts || [])}
       </div>`;
@@ -702,11 +691,9 @@ function renderAnchorEvidence(anchorResult) {
     .map((referenceResult) => {
       const meta = statusMeta(referenceResult.status || "white");
       const doiSummary = buildDoiVerificationSummary(referenceResult, null);
-      const reason = referenceResult.reason || "";
-      const mergedDescription = mergeReferenceDescriptions(doiSummary, reason);
       return `<div class="linked-ref">
         <div class="item-sub"><strong>[${escapeHtml(referenceResult.ref_id)}]</strong> 元数据：${meta.text}</div>
-        <div class="item-sub item-summary">${escapeHtml(truncate(mergedDescription, 260))}</div>
+        <div class="item-sub item-summary">${escapeHtml(truncate(doiSummary, 220))}</div>
         ${renderLinkBlock(referenceResult, null)}
         ${renderConflictBlock(referenceResult.conflicts || [])}
       </div>`;
