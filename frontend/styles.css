@@ -594,6 +594,49 @@ button {
   margin-top: 2px;
 }
 
+.inline-details {
+  margin-top: 4px;
+  padding: 4px 6px;
+  border: 1px dashed #cfc2ad;
+  border-radius: 8px;
+  background: #fffef9;
+}
+
+.inline-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #415a70;
+  list-style: none;
+}
+
+.inline-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.inline-details > summary::before {
+  content: "+ ";
+  color: #6e8092;
+  font-weight: 700;
+}
+
+.inline-details[open] > summary::before {
+  content: "- ";
+}
+
+.inline-details[open] > summary {
+  margin-bottom: 4px;
+}
+
+.reason-details {
+  margin-top: 5px;
+}
+
+.reason-details .reason-list,
+.conflict-details .conflict-list {
+  margin-top: 4px;
+}
+
 .conflict-from,
 .conflict-to {
   display: inline-block;

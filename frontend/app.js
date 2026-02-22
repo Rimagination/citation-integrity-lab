@@ -501,7 +501,7 @@ function mergeReferenceDescriptions(summary, reason) {
   return first || second || "无说明。";
 }
 
-function renderConflictList(conflicts) {
+function renderConflictBlock(conflicts) {
   if (!conflicts || !conflicts.length) {
     return `<div class="item-sub">偏差字段：无</div>`;
   }
@@ -516,12 +516,15 @@ function renderConflictList(conflicts) {
           : ` (${Math.round(item.similarity * 100)}%)`;
       return `<li><strong>${escapeHtml(field)}</strong>: <span class="conflict-from">${escapeHtml(
         from
-      )}</span><span class="conflict-arrow">→</span><span class="conflict-to">${escapeHtml(
+      )}</span><span class="conflict-arrow">&rarr;</span><span class="conflict-to">${escapeHtml(
         to
       )}</span>${sim}</li>`;
     })
     .join("");
-  return `<ul class="conflict-list">${lines}</ul>`;
+  return `<details class="inline-details conflict-details">
+    <summary>偏差字段（${conflicts.length}）</summary>
+    <ul class="conflict-list">${lines}</ul>
+  </details>`;
 }
 
 function summarizeReferenceResults(analysis) {
@@ -625,7 +628,7 @@ function renderReferenceItems(analysis) {
         <div class="item-title">${escapeHtml(truncate(title, 108))}</div>
         <div class="item-sub item-summary">${escapeHtml(truncate(mergedDescription, 260))}</div>
         ${renderLinkBlock(result, reference)}
-        ${renderConflictList(result?.conflicts || [])}
+        ${renderConflictBlock(result?.conflicts || [])}
       </div>`;
     })
     .join("");
@@ -672,7 +675,8 @@ function renderAnchorReasonBlock(anchorResult) {
   const summary = issues
     .map((item) => `${dimensionLabel(item.key)}${statusMeta(item.status).text}`)
     .join("；");
-  const details = issues
+  const focused = issues.filter((item) => item.key === "relevance" || item.key === "support");
+  const detailItems = (focused.length ? focused : issues)
     .slice(0, 3)
     .map(
       (item) =>
@@ -683,7 +687,10 @@ function renderAnchorReasonBlock(anchorResult) {
     .join("");
 
   return `<div class="risk-reason">正文匹配判断：${escapeHtml(summary)}</div>
-    <ul class="reason-list">${details}</ul>`;
+    <details class="inline-details reason-details">
+      <summary>展开相关性/支持度详情</summary>
+      <ul class="reason-list">${detailItems}</ul>
+    </details>`;
 }
 
 function renderAnchorEvidence(anchorResult) {
@@ -701,7 +708,7 @@ function renderAnchorEvidence(anchorResult) {
         <div class="item-sub"><strong>[${escapeHtml(referenceResult.ref_id)}]</strong> 元数据：${meta.text}</div>
         <div class="item-sub item-summary">${escapeHtml(truncate(mergedDescription, 260))}</div>
         ${renderLinkBlock(referenceResult, null)}
-        ${renderConflictList(referenceResult.conflicts || [])}
+        ${renderConflictBlock(referenceResult.conflicts || [])}
       </div>`;
     })
     .join("");
