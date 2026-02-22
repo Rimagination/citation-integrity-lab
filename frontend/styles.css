@@ -565,6 +565,13 @@ button {
   text-decoration: underline;
 }
 
+.item-link-disabled {
+  color: #9aa4b0;
+  text-decoration: none;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .link-sep {
   font-size: 11px;
   color: #7a8591;

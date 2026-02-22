@@ -32,14 +32,14 @@
         <div class="panel-top">
           <label class="panel-title" for="inputText">输入文本</label>
           <div class="panel-actions">
-            <button id="modeBtn" class="ghost-btn" type="button">模式：正文+参考文献</button>
+            <button id="modeBtn" class="ghost-btn" type="button">模式：仅参考文献</button>
             <button id="sampleBtn" class="ghost-btn" type="button">示例</button>
             <button id="analyzeBtn" class="primary-btn" type="button">开始</button>
           </div>
         </div>
         <textarea
           id="inputText"
-          placeholder="输入正文+参考文献，或切到仅参考文献模式。点击“示例”自动填充。"
+          placeholder="输入参考文献列表，点击“示例”自动填充。"
         ></textarea>
         <p id="runState" class="run-state">待开始</p>
       </section>
@@ -59,7 +59,7 @@
         </aside>
 
         <aside class="corrected-card">
-          <h2>校正后参考文献</h2>
+          <h2>标准格式参考文献</h2>
           <p class="workspace-hint">可选格式，支持复制与导出。</p>
           <div id="correctedPanel" class="corrected-panel">
             <p class="empty-tip">暂无可导出的参考文献。</p>

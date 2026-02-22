@@ -567,6 +567,27 @@ def _fallback_citation_text(
     return _clean_spaces(f"{authors}. {title}. {journal}, {year}. {doi_url}")
 
 
+def _normalize_gb_english_citation(
+    style: str,
+    citation_text: str,
+    official: OfficialMetadata | None,
+) -> str:
+    if not citation_text:
+        return citation_text
+    if not style.startswith("china-national-standard-gb-t-7714-2015"):
+        return citation_text
+
+    title = _clean_spaces((official.title if official else "") or "")
+    latin, cjk = _char_mix(f"{title} {citation_text}")
+    # Apply only for clearly English-dominant references.
+    if latin < 16 or cjk > 6:
+        return citation_text
+
+    normalized = re.sub(r"([,，]\s*)等([,，\.。])", r"\1et al\2", citation_text)
+    normalized = re.sub(r"\s+等([,，\.。])", r" et al\1", normalized)
+    return _clean_spaces(normalized)
+
+
 async def _fetch_doi_bibliography(
     client: httpx.AsyncClient,
     doi: str,
@@ -614,7 +635,7 @@ async def _build_citation_suggestions(
         except Exception:
             citation_text = None
         if citation_text:
-            suggestions[style] = citation_text
+            suggestions[style] = _normalize_gb_english_citation(style, citation_text, official)
 
     # Backfill missing styles so UI always has consistent options.
     if official:
@@ -623,7 +644,7 @@ async def _build_citation_suggestions(
                 continue
             fallback_text = _fallback_citation_text(style, official, doi)
             if fallback_text:
-                suggestions[style] = fallback_text
+                suggestions[style] = _normalize_gb_english_citation(style, fallback_text, official)
 
     if suggestions:
         CITATION_SUGGESTION_CACHE[doi] = dict(suggestions)

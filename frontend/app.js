@@ -15,7 +15,7 @@ const PLACEHOLDER_REFERENCES =
 
 const state = {
   analysis: null,
-  mode: "full",
+  mode: "references",
   activeAnchorId: null,
   citationByRef: {},
   correctedStyle: "",
@@ -146,46 +146,29 @@ function buildDoiUrl(doi) {
   return `https://doi.org/${encodeURI(normalized)}`;
 }
 
-function buildRepositoryLinks(doi, sourceLinks) {
-  const links = [];
+function buildRepositoryLinkMap(doi, sourceLinks) {
   const linkMap = sourceLinks || {};
-  const doiUrl = linkMap.doi || buildDoiUrl(doi);
+  const result = {};
+  result.doi = linkMap.doi || buildDoiUrl(doi);
   const normalized = normalizeDoi(doi);
 
-  const crossrefUrl =
+  result.crossref =
     linkMap.crossref ||
     (normalized ? `https://api.crossref.org/works/${encodeURI(normalized)}` : "");
-  const openalexUrl =
+  result.openalex =
     linkMap.openalex ||
     (normalized
       ? `https://api.openalex.org/works?filter=doi:https://doi.org/${encodeURIComponent(normalized)}`
       : "");
-  const dataciteUrl =
+  result.datacite =
     linkMap.datacite ||
     (normalized ? `https://api.datacite.org/dois/${encodeURIComponent(normalized)}` : "");
-  const semanticUrl =
+  result.semanticscholar =
     linkMap.semanticscholar ||
     (normalized
       ? `https://www.semanticscholar.org/search?q=${encodeURIComponent(normalized)}`
       : "");
-
-  if (doiUrl) {
-    links.push({ key: "doi", label: "DOI", url: doiUrl });
-  }
-  if (crossrefUrl) {
-    links.push({ key: "crossref", label: "Crossref", url: crossrefUrl });
-  }
-  if (openalexUrl) {
-    links.push({ key: "openalex", label: "OpenAlex", url: openalexUrl });
-  }
-  if (dataciteUrl) {
-    links.push({ key: "datacite", label: "DataCite", url: dataciteUrl });
-  }
-  if (semanticUrl) {
-    links.push({ key: "semanticscholar", label: "Semantic", url: semanticUrl });
-  }
-
-  return links;
+  return result;
 }
 
 function citationStyleLabel(styleKey) {
@@ -201,54 +184,6 @@ function orderedCitationStyles(suggestions) {
     }
   }
   return ordered;
-}
-
-function citationTextFor(refId, style) {
-  const suggestionMap = state.citationByRef?.[String(refId)] || {};
-  return suggestionMap[String(style)] || "";
-}
-
-function renderCitationTool(referenceResult) {
-  const refId = String(referenceResult?.ref_id || "");
-  const suggestions = referenceResult?.citation_suggestions || {};
-  const styles = orderedCitationStyles(suggestions);
-  if (!refId || !styles.length) {
-    return `<div class="citation-tool empty">
-      <div class="citation-tool-title">标准格式建议（按 DOI）</div>
-      <div class="citation-tool-empty">未获取到 DOI 标准引文。</div>
-    </div>`;
-  }
-
-  const defaultStyle = styles[0];
-  const preview = suggestions[defaultStyle] || "";
-  const optionsHtml = styles
-    .map(
-      (style) =>
-        `<option value="${escapeHtml(style)}">${escapeHtml(citationStyleLabel(style))}</option>`
-    )
-    .join("");
-
-  return `<div class="citation-tool" data-ref-id="${escapeHtml(refId)}">
-    <div class="citation-tool-title">标准格式建议（按 DOI）</div>
-    <div class="citation-tool-controls">
-      <select class="citation-style-select">${optionsHtml}</select>
-      <button type="button" class="ghost-btn tiny-btn copy-citation-btn">复制</button>
-    </div>
-    <div class="citation-preview">${escapeHtml(preview)}</div>
-  </div>`;
-}
-
-function updateCitationPreview(toolNode, style) {
-  if (!toolNode) {
-    return;
-  }
-  const refId = toolNode.dataset.refId || "";
-  const previewNode = toolNode.querySelector(".citation-preview");
-  if (!previewNode) {
-    return;
-  }
-  const citationText = citationTextFor(refId, style);
-  previewNode.textContent = citationText || "当前格式暂无可用引文。";
 }
 
 function compactSpaces(value) {
@@ -429,15 +364,43 @@ function buildRenderedBody(parseResult, anchorMap) {
 function renderLinkBlock(referenceResult, fallbackReference) {
   const official = referenceResult?.official || {};
   const doiRaw = official.doi || fallbackReference?.doi || "";
-  const links = buildRepositoryLinks(doiRaw, referenceResult?.source_links);
-  if (!links.length) {
-    return "";
-  }
-  return `<div class="item-links">${links
-    .map(
-      (item) =>
-        `<a class="item-link" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.label)}</a>`
-    )
+  const linkMap = buildRepositoryLinkMap(doiRaw, referenceResult?.source_links);
+  const hitSources = new Set(
+    (referenceResult?.sources_found || []).map((item) => String(item || "").toLowerCase())
+  );
+
+  const linkItems = [
+    { key: "doi", label: "DOI", enabled: Boolean(linkMap.doi) },
+    {
+      key: "crossref",
+      label: "Crossref",
+      enabled: hitSources.has("crossref") && Boolean(linkMap.crossref),
+    },
+    {
+      key: "openalex",
+      label: "OpenAlex",
+      enabled: hitSources.has("openalex") && Boolean(linkMap.openalex),
+    },
+    {
+      key: "datacite",
+      label: "DataCite",
+      enabled: hitSources.has("datacite") && Boolean(linkMap.datacite),
+    },
+    {
+      key: "semanticscholar",
+      label: "Semantic",
+      enabled: hitSources.has("semanticscholar") && Boolean(linkMap.semanticscholar),
+    },
+  ];
+
+  return `<div class="item-links">${linkItems
+    .map((item) => {
+      const url = linkMap[item.key] || "";
+      if (item.enabled && url) {
+        return `<a class="item-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.label)}</a>`;
+      }
+      return `<span class="item-link item-link-disabled">${escapeHtml(item.label)}</span>`;
+    })
     .join("<span class=\"link-sep\">|</span>")}</div>`;
 }
 
@@ -551,10 +514,6 @@ function renderReferenceItems(analysis) {
       const meta = statusMeta(status);
       const title = result?.official?.title || reference.title || reference.raw || "无标题";
       const reason = result?.reason || "无返回结果。";
-      const sourceText =
-        result?.sources_found && result.sources_found.length
-          ? formatSourceNames(result.sources_found).join(" / ")
-          : "无";
       return `<div class="result-item status-${status}">
         <div class="item-head">
           <span class="status-chip">[${escapeHtml(reference.ref_id)}] ${meta.text}</span>
@@ -562,9 +521,7 @@ function renderReferenceItems(analysis) {
         </div>
         <div class="item-title">${escapeHtml(truncate(title, 108))}</div>
         <div class="item-sub">${escapeHtml(truncate(reason, 120))}</div>
-        <div class="item-sub">命中源：${escapeHtml(sourceText)}</div>
         ${renderLinkBlock(result, reference)}
-        ${renderCitationTool(result)}
         ${renderConflictList(result?.conflicts || [])}
       </div>`;
     })
@@ -634,16 +591,10 @@ function renderAnchorEvidence(anchorResult) {
   const rows = linked
     .map((referenceResult) => {
       const meta = statusMeta(referenceResult.status || "white");
-      const sourceText =
-        referenceResult.sources_found && referenceResult.sources_found.length
-          ? formatSourceNames(referenceResult.sources_found).join(" / ")
-          : "无";
       return `<div class="linked-ref">
         <div class="item-sub"><strong>[${escapeHtml(referenceResult.ref_id)}]</strong> 元数据：${meta.text}</div>
         <div class="item-sub">${escapeHtml(truncate(referenceResult.reason || "无说明。", 120))}</div>
-        <div class="item-sub">命中源：${escapeHtml(sourceText)}</div>
         ${renderLinkBlock(referenceResult, null)}
-        ${renderCitationTool(referenceResult)}
         ${renderConflictList(referenceResult.conflicts || [])}
       </div>`;
     })
@@ -722,7 +673,7 @@ function renderAnalysis(analysis) {
   }
 
   workspaceTitle.textContent = "核查工作区";
-  workspaceHint.textContent = "左侧高亮引用，右侧查看证据。";
+  workspaceHint.textContent = "高亮显示引用标注，在结果列表中查看证据。";
   renderedText.innerHTML = buildRenderedBody(analysis.parse, anchorMap);
   renderAnchorItems(analysis);
   renderCorrectedPanel(analysis);
@@ -807,37 +758,8 @@ sampleBtn.addEventListener("click", () => {
 
 analyzeBtn.addEventListener("click", runAnalysis);
 
-detailPanel.addEventListener("change", (event) => {
-  const select = event.target.closest(".citation-style-select");
-  if (!select) {
-    return;
-  }
-  const tool = select.closest(".citation-tool");
-  updateCitationPreview(tool, select.value);
-});
-
 detailPanel.addEventListener("click", async (event) => {
-  const copyBtn = event.target.closest(".copy-citation-btn");
-  if (copyBtn) {
-    const tool = copyBtn.closest(".citation-tool");
-    const select = tool?.querySelector(".citation-style-select");
-    const style = select?.value || "";
-    const refId = tool?.dataset?.refId || "";
-    const citationText = citationTextFor(refId, style);
-    const ok = await copyTextToClipboard(citationText);
-    const prev = copyBtn.textContent;
-    copyBtn.textContent = ok ? "已复制" : "复制失败";
-    setTimeout(() => {
-      copyBtn.textContent = prev || "复制";
-    }, 1300);
-    event.preventDefault();
-    return;
-  }
-
   if (event.target.closest("a")) {
-    return;
-  }
-  if (event.target.closest(".citation-tool")) {
     return;
   }
   const row = event.target.closest(".result-item[data-anchor-id]");
