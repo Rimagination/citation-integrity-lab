@@ -185,12 +185,14 @@ button {
 .result-section {
   margin-top: 12px;
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.95fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.95fr) minmax(280px, 0.95fr);
   gap: 12px;
+  align-items: start;
 }
 
 .workspace-card,
-.detail-card {
+.detail-card,
+.corrected-card {
   background: #fffdf8;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -199,7 +201,8 @@ button {
 }
 
 .workspace-card h2,
-.detail-card h2 {
+.detail-card h2,
+.corrected-card h2 {
   margin: 0;
   font-size: 15px;
 }
@@ -229,6 +232,72 @@ button {
   min-height: 120px;
   max-height: 62vh;
   overflow: auto;
+}
+
+.corrected-panel {
+  margin-top: 8px;
+  min-height: 120px;
+  max-height: 62vh;
+  overflow: auto;
+}
+
+.corrected-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.corrected-style-select {
+  flex: 1;
+  min-width: 170px;
+  border: 1px solid #cbbca7;
+  border-radius: 8px;
+  background: #fff;
+  color: #1f2e3f;
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.corrected-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.corrected-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #5e7285;
+}
+
+.corrected-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.corrected-item {
+  border: 1px dashed #cfbeaa;
+  border-radius: 8px;
+  background: #fffefb;
+  padding: 7px;
+}
+
+.corrected-id {
+  font-size: 12px;
+  font-weight: 700;
+  color: #355068;
+}
+
+.corrected-text {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #22384f;
+  word-break: break-word;
 }
 
 .status-legend {
@@ -669,12 +738,27 @@ button {
 
 @media (max-width: 1024px) {
   .result-section {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .workspace-card {
+    grid-column: 1 / -1;
   }
 
   .detail-panel,
+  .corrected-panel,
   .rendered-text {
     max-height: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .result-section {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-card {
+    grid-column: auto;
   }
 }
 
@@ -694,5 +778,15 @@ button {
 
   #inputText {
     min-height: 160px;
+  }
+
+  .corrected-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .corrected-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 }

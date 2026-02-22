@@ -18,6 +18,7 @@ const state = {
   mode: "full",
   activeAnchorId: null,
   citationByRef: {},
+  correctedStyle: "",
 };
 
 const CITATION_STYLE_ORDER = [
@@ -28,6 +29,7 @@ const CITATION_STYLE_ORDER = [
   "ieee",
   "chicago-author-date",
 ];
+const ORIGINAL_STYLE = "__original__";
 
 const CITATION_STYLE_LABELS = {
   apa: "APA",
@@ -36,6 +38,7 @@ const CITATION_STYLE_LABELS = {
   "china-national-standard-gb-t-7714-2015-author-date": "国标 GB/T 7714（著者-出版年）",
   ieee: "IEEE",
   "chicago-author-date": "Chicago",
+  [ORIGINAL_STYLE]: "原文输入",
 };
 
 const inputText = document.getElementById("inputText");
@@ -48,6 +51,7 @@ const workspaceTitle = document.getElementById("workspaceTitle");
 const workspaceHint = document.getElementById("workspaceHint");
 const renderedText = document.getElementById("renderedText");
 const detailPanel = document.getElementById("detailPanel");
+const correctedPanel = document.getElementById("correctedPanel");
 
 function escapeHtml(value) {
   return (value ?? "")
@@ -245,6 +249,130 @@ function updateCitationPreview(toolNode, style) {
   }
   const citationText = citationTextFor(refId, style);
   previewNode.textContent = citationText || "当前格式暂无可用引文。";
+}
+
+function compactSpaces(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function citationStylesForAnalysis(analysis) {
+  const styles = new Set();
+  for (const item of Object.values(analysis?.reference_results || {})) {
+    for (const key of Object.keys(item?.citation_suggestions || {})) {
+      styles.add(key);
+    }
+  }
+  const ordered = CITATION_STYLE_ORDER.filter((key) => styles.has(key));
+  for (const key of styles) {
+    if (!ordered.includes(key)) {
+      ordered.push(key);
+    }
+  }
+  ordered.push(ORIGINAL_STYLE);
+  return ordered;
+}
+
+function buildCorrectedEntries(analysis, style) {
+  const references = [...(analysis?.parse?.references || [])].sort(
+    (a, b) => Number(a.index || a.ref_id || 0) - Number(b.index || b.ref_id || 0)
+  );
+  const resultMap = analysis?.reference_results || {};
+  return references.map((reference) => {
+    const refId = String(reference.ref_id);
+    const result = resultMap[refId] || {};
+    const suggestions = result.citation_suggestions || {};
+
+    let citationText = "";
+    if (style === ORIGINAL_STYLE) {
+      citationText = reference.raw || "";
+    } else {
+      citationText = suggestions[style] || "";
+      if (!citationText) {
+        const fallbackStyle = orderedCitationStyles(suggestions)[0];
+        citationText = (fallbackStyle && suggestions[fallbackStyle]) || "";
+      }
+    }
+
+    if (!citationText) {
+      const official = result.official || {};
+      const doi = normalizeDoi(official.doi || reference.doi || "");
+      citationText = compactSpaces(
+        [official.title || reference.title || reference.raw || "", doi ? `https://doi.org/${doi}` : ""].join(" ")
+      );
+    }
+
+    return {
+      refId,
+      text: compactSpaces(citationText),
+    };
+  });
+}
+
+function correctedExportText(analysis, style) {
+  const entries = buildCorrectedEntries(analysis, style);
+  return entries
+    .map((entry, idx) => `[${Number(entry.refId) || idx + 1}] ${entry.text}`)
+    .join("\n");
+}
+
+function downloadTextFile(filename, content) {
+  const blob = new Blob([String(content || "")], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function renderCorrectedPanel(analysis) {
+  if (!correctedPanel) {
+    return;
+  }
+  const refs = analysis?.parse?.references || [];
+  if (!refs.length) {
+    correctedPanel.innerHTML = `<p class="empty-tip">暂无可导出的参考文献。</p>`;
+    return;
+  }
+
+  const styleOptions = citationStylesForAnalysis(analysis);
+  if (!styleOptions.includes(state.correctedStyle)) {
+    state.correctedStyle = styleOptions[0];
+  }
+  const style = state.correctedStyle;
+  const entries = buildCorrectedEntries(analysis, style);
+
+  const optionsHtml = styleOptions
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item)}"${item === style ? " selected" : ""}>${escapeHtml(
+          citationStyleLabel(item)
+        )}</option>`
+    )
+    .join("");
+
+  const listHtml = entries
+    .map(
+      (entry, idx) => `<li class="corrected-item">
+      <div class="corrected-id">[${Number(entry.refId) || idx + 1}]</div>
+      <div class="corrected-text">${escapeHtml(entry.text || "（无可用文本）")}</div>
+    </li>`
+    )
+    .join("");
+
+  correctedPanel.innerHTML = `<div class="corrected-toolbar">
+    <select class="corrected-style-select">${optionsHtml}</select>
+    <div class="corrected-actions">
+      <button type="button" class="ghost-btn tiny-btn copy-corrected-btn">复制全部</button>
+      <button type="button" class="ghost-btn tiny-btn export-corrected-btn">导出TXT</button>
+    </div>
+  </div>
+  <div class="corrected-hint">共 ${entries.length} 条，当前格式：${escapeHtml(
+    citationStyleLabel(style)
+  )}</div>
+  <ol class="corrected-list">${listHtml}</ol>`;
 }
 
 function updateModeButton() {
@@ -588,6 +716,7 @@ function renderAnalysis(analysis) {
     workspaceHint.textContent = "左侧看总结，右侧看逐条结果。";
     renderedText.innerHTML = renderReferenceReport(analysis);
     renderReferenceItems(analysis);
+    renderCorrectedPanel(analysis);
     runState.textContent = `完成：文献 ${refCount} 条。`;
     return;
   }
@@ -596,6 +725,7 @@ function renderAnalysis(analysis) {
   workspaceHint.textContent = "左侧高亮引用，右侧查看证据。";
   renderedText.innerHTML = buildRenderedBody(analysis.parse, anchorMap);
   renderAnchorItems(analysis);
+  renderCorrectedPanel(analysis);
   const firstIssue =
     (analysis.anchor_results || []).find((item) => item.overall_status !== "green") ||
     (analysis.anchor_results || [])[0];
@@ -717,6 +847,37 @@ detailPanel.addEventListener("click", async (event) => {
   const anchorId = row.dataset.anchorId;
   if (anchorId) {
     setActiveAnchor(anchorId);
+  }
+});
+
+correctedPanel.addEventListener("change", (event) => {
+  const select = event.target.closest(".corrected-style-select");
+  if (!select || !state.analysis) {
+    return;
+  }
+  state.correctedStyle = select.value;
+  renderCorrectedPanel(state.analysis);
+});
+
+correctedPanel.addEventListener("click", async (event) => {
+  const copyBtn = event.target.closest(".copy-corrected-btn");
+  if (copyBtn && state.analysis) {
+    const content = correctedExportText(state.analysis, state.correctedStyle || ORIGINAL_STYLE);
+    const ok = await copyTextToClipboard(content);
+    const prev = copyBtn.textContent;
+    copyBtn.textContent = ok ? "已复制" : "复制失败";
+    setTimeout(() => {
+      copyBtn.textContent = prev || "复制全部";
+    }, 1300);
+    return;
+  }
+
+  const exportBtn = event.target.closest(".export-corrected-btn");
+  if (exportBtn && state.analysis) {
+    const styleKey = state.correctedStyle || ORIGINAL_STYLE;
+    const label = citationStyleLabel(styleKey).replace(/[\\/:*?"<>|]+/g, "_");
+    const content = correctedExportText(state.analysis, styleKey);
+    downloadTextFile(`corrected-references-${label}.txt`, content);
   }
 });
 
