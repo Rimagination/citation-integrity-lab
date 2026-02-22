@@ -386,10 +386,11 @@ function buildRenderedBody(parseResult, anchorMap) {
     }
     html += withLineBreaks(body.slice(cursor, anchor.start));
     const markerText = body.slice(anchor.start, anchor.end) || anchor.marker;
+    const markerHtml = escapeHtml(markerText);
     const anchorResult = anchorMap.get(anchor.anchor_id);
     const status = anchorResult?.overall_status || "white";
-    html += `<button type="button" class="citation-tag status-${status}" data-anchor-id="${anchor.anchor_id}">
-      ${escapeHtml(markerText)}<span class="dot"></span>
+    html += `<button type="button" class="citation-tag status-${status}" data-anchor-id="${anchor.anchor_id}" title="${markerHtml}">
+      <span class="tag-text">${markerHtml}</span><span class="dot"></span>
     </button>`;
     cursor = anchor.end;
   }
@@ -630,7 +631,7 @@ function anchorScoreSummary(anchorResult) {
   const md = statusMeta(dims.metadata?.status || "white").short;
   const rv = statusMeta(dims.relevance?.status || "white").short;
   const sp = statusMeta(dims.support?.status || "white").short;
-  return `元数据:${md} | 相关性:${rv} | 支持度:${sp}`;
+  return `元:${md} 关:${rv} 支:${sp}`;
 }
 
 function dimensionLabel(key) {
@@ -685,7 +686,11 @@ function renderAnchorReasonBlock(anchorResult) {
 function renderAnchorEvidence(anchorResult) {
   const linked = anchorResult.linked_reference_results || [];
   if (!linked.length) {
-    return `<div class="subsection-box"><div class="subsection-title">文献真实性核验</div><div class="item-sub">未映射参考文献。</div></div>`;
+    return `<details class="subsection-box evidence-details">
+      <summary class="subsection-title">文献真实性核验（0）</summary>
+      <div class="subsection-note">只核对文献条目信息是否真实，不代表正文支持度。</div>
+      <div class="item-sub">未映射参考文献。</div>
+    </details>`;
   }
   const rows = linked
     .map((referenceResult) => {
@@ -699,11 +704,11 @@ function renderAnchorEvidence(anchorResult) {
       </div>`;
     })
     .join("");
-  return `<div class="subsection-box">
-    <div class="subsection-title">文献真实性核验</div>
+  return `<details class="subsection-box evidence-details">
+    <summary class="subsection-title">文献真实性核验（${linked.length}）</summary>
     <div class="subsection-note">只核对文献条目信息是否真实，不代表正文支持度。</div>
     ${rows}
-  </div>`;
+  </details>`;
 }
 
 function renderAnchorItems(analysis) {
@@ -719,10 +724,14 @@ function renderAnchorItems(analysis) {
       const meta = statusMeta(status);
       const refs = (anchorResult.linked_ref_ids || []).join(", ") || "-";
       const claim = anchorResult.claim || "";
+      const markerText = anchorResult.marker || "";
       return `<div class="result-item status-${status}" data-anchor-id="${anchorResult.anchor_id}">
         <div class="item-head">
-          <span class="status-chip">${escapeHtml(anchorResult.marker)} ${meta.text}</span>
-          <span class="item-tag">${escapeHtml(anchorScoreSummary(anchorResult))}</span>
+          <div class="item-head-main">
+            <span class="status-chip">${meta.text}</span>
+            <span class="marker-chip" title="${escapeHtml(markerText)}">${escapeHtml(markerText)}</span>
+          </div>
+          <span class="item-tag item-tag-compact">${escapeHtml(anchorScoreSummary(anchorResult))}</span>
         </div>
         <div class="item-title">关联文献：${escapeHtml(refs)}</div>
         <div class="item-sub">${escapeHtml(truncate(claim, 108))}</div>

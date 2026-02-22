@@ -424,7 +424,17 @@ button {
   display: flex;
   justify-content: space-between;
   gap: 8px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.item-head-main {
+  display: flex;
   align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 220px;
+  flex-wrap: wrap;
 }
 
 .status-chip {
@@ -440,7 +450,33 @@ button {
 .item-doi {
   font-size: 11px;
   color: #5b6673;
+}
+
+.item-doi {
   white-space: nowrap;
+}
+
+.item-tag-compact {
+  max-width: 170px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+.marker-chip {
+  display: inline-block;
+  max-width: min(100%, 28ch);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #d6c9b4;
+  background: #fffdf7;
+  color: #233a50;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .item-title {
@@ -739,6 +775,29 @@ button {
   color: #5e7285;
 }
 
+.evidence-details > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.evidence-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.evidence-details > summary::before {
+  content: "+ ";
+  color: #6e8092;
+  font-weight: 700;
+}
+
+.evidence-details[open] > summary::before {
+  content: "- ";
+}
+
+.evidence-details[open] > summary {
+  margin-bottom: 2px;
+}
+
 .citation-tag {
   display: inline-flex;
   align-items: center;
@@ -751,6 +810,17 @@ button {
   font-weight: 700;
   background: #f7f7f7;
   color: #193249;
+  max-width: min(100%, 26ch);
+  vertical-align: middle;
+}
+
+.citation-tag .tag-text {
+  display: inline-block;
+  min-width: 0;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .citation-tag .dot {
