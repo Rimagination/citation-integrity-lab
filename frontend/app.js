@@ -459,12 +459,60 @@ function hasConflictField(conflicts, field) {
   );
 }
 
+function conflictFieldNames(conflicts) {
+  const set = new Set(
+    (conflicts || []).map((item) => String(item?.field || "").toLowerCase()).filter(Boolean)
+  );
+  return set;
+}
+
+function conflictTailText(fieldSet, totalCount) {
+  const hasTitle = fieldSet.has("title");
+  const hasYear = fieldSet.has("year");
+  const hasAuthor = fieldSet.has("first_author");
+  const hasJournal = fieldSet.has("journal");
+
+  if (hasTitle && hasYear) {
+    return "但标题/年份存在偏差。";
+  }
+  if (hasYear && fieldSet.size === 1) {
+    return "但年份存在偏差。";
+  }
+  if (hasTitle && fieldSet.size === 1) {
+    return "但标题存在偏差。";
+  }
+  if (hasAuthor && fieldSet.size === 1) {
+    return "但作者信息存在偏差。";
+  }
+  if (hasJournal && fieldSet.size === 1) {
+    return "但期刊信息存在偏差。";
+  }
+
+  const labels = [];
+  if (hasTitle) labels.push("标题");
+  if (hasYear) labels.push("年份");
+  if (hasAuthor) labels.push("作者");
+  if (hasJournal) labels.push("期刊");
+
+  for (const key of fieldSet) {
+    if (!["title", "year", "first_author", "journal", "doi"].includes(key)) {
+      labels.push(key);
+    }
+  }
+
+  if (labels.length) {
+    return `但存在字段偏差（${labels.join(" / ")}）。`;
+  }
+  return `但存在字段偏差（${totalCount || 1} 项）。`;
+}
+
 function buildDoiVerificationSummary(referenceResult, fallbackReference) {
   const item = referenceResult || {};
   const sources = normalizeSourceKeys(item.sources_found || []);
   const sourceSummary = sourceSummaryText(sources);
   const hasSourceHit = sources.length > 0;
   const conflicts = item.conflicts || [];
+  const fields = conflictFieldNames(conflicts);
 
   const doiValue = normalizeDoi(
     item?.official?.doi || fallbackReference?.doi || item?.source_links?.doi || ""
@@ -482,12 +530,12 @@ function buildDoiVerificationSummary(referenceResult, fallbackReference) {
     return `DOI未提供，但多源命中（${sourceSummary}），可按标题/年份继续核对。`;
   }
 
-  if (hasConflictField(conflicts, "doi")) {
+  if (fields.has("doi") || hasConflictField(conflicts, "doi")) {
     return `DOI存在，但与官方记录不一致；多源命中（${sourceSummary}），需人工复核。`;
   }
 
-  if (hasConflictField(conflicts, "title") || hasConflictField(conflicts, "year")) {
-    return `DOI存在，多源命中（${sourceSummary}），但标题/年份存在偏差。`;
+  if (conflicts.length) {
+    return `DOI存在，多源命中（${sourceSummary}），${conflictTailText(fields, conflicts.length)}`;
   }
 
   return `DOI存在，多源命中（${sourceSummary}），标题/年份整体匹配。`;
