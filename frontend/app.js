@@ -492,6 +492,29 @@ function buildDoiVerificationSummary(referenceResult, fallbackReference) {
   return `DOI存在，多源命中（${sourceSummary}），标题/年份整体匹配。`;
 }
 
+function normalizeReasonForCompare(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/^doi[^，。；;,.!?！？：:]*[，,:：]/, "")
+    .replace(/[。．,.，；;:：!?！？]/g, "");
+}
+
+function shouldRenderReasonLine(reason, summary) {
+  const reasonNorm = normalizeReasonForCompare(reason);
+  const summaryNorm = normalizeReasonForCompare(summary);
+  if (!reasonNorm) {
+    return false;
+  }
+  if (!summaryNorm) {
+    return true;
+  }
+  if (summaryNorm.includes(reasonNorm) || reasonNorm.includes(summaryNorm)) {
+    return false;
+  }
+  return true;
+}
+
 function renderConflictList(conflicts) {
   if (!conflicts || !conflicts.length) {
     return `<div class="item-sub">偏差字段：无</div>`;
@@ -603,6 +626,7 @@ function renderReferenceItems(analysis) {
       const title = result?.official?.title || reference.title || reference.raw || "无标题";
       const doiSummary = buildDoiVerificationSummary(result, reference);
       const reason = result?.reason || "无返回结果。";
+      const showReason = shouldRenderReasonLine(reason, doiSummary);
       return `<div class="result-item status-${status}">
         <div class="item-head">
           <span class="status-chip">[${escapeHtml(reference.ref_id)}] ${meta.text}</span>
@@ -610,7 +634,7 @@ function renderReferenceItems(analysis) {
         </div>
         <div class="item-title">${escapeHtml(truncate(title, 108))}</div>
         <div class="item-sub item-summary">${escapeHtml(truncate(doiSummary, 180))}</div>
-        <div class="item-sub">${escapeHtml(truncate(reason, 120))}</div>
+        ${showReason ? `<div class="item-sub">${escapeHtml(truncate(reason, 120))}</div>` : ""}
         ${renderLinkBlock(result, reference)}
         ${renderConflictList(result?.conflicts || [])}
       </div>`;
@@ -682,10 +706,12 @@ function renderAnchorEvidence(anchorResult) {
     .map((referenceResult) => {
       const meta = statusMeta(referenceResult.status || "white");
       const doiSummary = buildDoiVerificationSummary(referenceResult, null);
+      const reason = referenceResult.reason || "无说明。";
+      const showReason = shouldRenderReasonLine(reason, doiSummary);
       return `<div class="linked-ref">
         <div class="item-sub"><strong>[${escapeHtml(referenceResult.ref_id)}]</strong> 元数据：${meta.text}</div>
         <div class="item-sub item-summary">${escapeHtml(truncate(doiSummary, 180))}</div>
-        <div class="item-sub">${escapeHtml(truncate(referenceResult.reason || "无说明。", 120))}</div>
+        ${showReason ? `<div class="item-sub">${escapeHtml(truncate(reason, 120))}</div>` : ""}
         ${renderLinkBlock(referenceResult, null)}
         ${renderConflictList(referenceResult.conflicts || [])}
       </div>`;
