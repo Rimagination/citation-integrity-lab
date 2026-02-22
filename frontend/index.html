@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>引文深度核查</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;700&family=Noto+Serif+SC:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="background-orb orb-a"></div>
+    <div class="background-orb orb-b"></div>
+    <div class="background-grid"></div>
+
+    <main class="page">
+      <header class="hero">
+        <p class="hero-kicker">Citation Integrity Lab</p>
+        <h1>引文核查</h1>
+        <p class="hero-subtitle">
+          先选模式，再点示例或开始。
+        </p>
+      </header>
+
+      <p class="quick-check-title">一键核查参考文献</p>
+
+      <section class="input-panel">
+        <div class="panel-top">
+          <label class="panel-title" for="inputText">输入文本</label>
+          <div class="panel-actions">
+            <button id="modeBtn" class="ghost-btn" type="button">模式：正文+参考文献</button>
+            <button id="sampleBtn" class="ghost-btn" type="button">示例</button>
+            <button id="analyzeBtn" class="primary-btn" type="button">开始</button>
+          </div>
+        </div>
+        <textarea
+          id="inputText"
+          placeholder="输入正文+参考文献，或切到仅参考文献模式。点击“示例”自动填充。"
+        ></textarea>
+        <p id="runState" class="run-state">待开始</p>
+      </section>
+
+      <section id="resultSection" class="result-section hidden">
+        <article class="workspace-card">
+          <h2 id="workspaceTitle">核查工作区</h2>
+          <p id="workspaceHint" class="workspace-hint">左侧高亮，右侧列表。</p>
+          <div id="renderedText" class="rendered-text"></div>
+        </article>
+
+        <aside class="detail-card">
+          <h2>结果列表</h2>
+          <div id="detailPanel" class="detail-panel">
+            <p class="empty-tip">暂无结果。</p>
+          </div>
+        </aside>
+      </section>
+
+      <footer class="page-footer">v 0.1.0，更新日期：2026-02-22</footer>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
