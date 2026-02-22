@@ -440,6 +440,58 @@ function renderLinkBlock(referenceResult, fallbackReference) {
     .join("<span class=\"link-sep\">|</span>")}</div>`;
 }
 
+function normalizeSourceKeys(items) {
+  return (items || []).map((item) => String(item || "").toLowerCase()).filter(Boolean);
+}
+
+function sourceSummaryText(items) {
+  const names = formatSourceNames(normalizeSourceKeys(items));
+  return names.length
+    ? names.join(" / ")
+    : "Crossref / OpenAlex / DataCite / Semantic Scholar";
+}
+
+function hasConflictField(conflicts, field) {
+  const target = String(field || "").toLowerCase();
+  return (conflicts || []).some(
+    (item) => String(item?.field || "").toLowerCase() === target
+  );
+}
+
+function buildDoiVerificationSummary(referenceResult, fallbackReference) {
+  const item = referenceResult || {};
+  const sources = normalizeSourceKeys(item.sources_found || []);
+  const sourceSummary = sourceSummaryText(sources);
+  const hasSourceHit = sources.length > 0;
+  const conflicts = item.conflicts || [];
+
+  const doiValue = normalizeDoi(
+    item?.official?.doi || fallbackReference?.doi || item?.source_links?.doi || ""
+  );
+  const hasDoi = Boolean(doiValue);
+
+  if (!hasSourceHit) {
+    if (hasDoi) {
+      return `DOI未通过核验，${sourceSummary} 均未命中，疑似捏造或信息缺失。`;
+    }
+    return `DOI缺失或未识别，${sourceSummary} 均未命中，疑似捏造或信息缺失。`;
+  }
+
+  if (!hasDoi) {
+    return `DOI未提供，但多源命中（${sourceSummary}），可按标题/年份继续核对。`;
+  }
+
+  if (hasConflictField(conflicts, "doi")) {
+    return `DOI存在，但与官方记录不一致；多源命中（${sourceSummary}），需人工复核。`;
+  }
+
+  if (hasConflictField(conflicts, "title") || hasConflictField(conflicts, "year")) {
+    return `DOI存在，多源命中（${sourceSummary}），但标题/年份存在偏差。`;
+  }
+
+  return `DOI存在，多源命中（${sourceSummary}），标题/年份整体匹配。`;
+}
+
 function renderConflictList(conflicts) {
   if (!conflicts || !conflicts.length) {
     return `<div class="item-sub">偏差字段：无</div>`;
@@ -549,6 +601,7 @@ function renderReferenceItems(analysis) {
       const status = result?.status || "white";
       const meta = statusMeta(status);
       const title = result?.official?.title || reference.title || reference.raw || "无标题";
+      const doiSummary = buildDoiVerificationSummary(result, reference);
       const reason = result?.reason || "无返回结果。";
       return `<div class="result-item status-${status}">
         <div class="item-head">
@@ -556,6 +609,7 @@ function renderReferenceItems(analysis) {
           <span class="item-tag">${escapeHtml(result?.label || "未判定")}</span>
         </div>
         <div class="item-title">${escapeHtml(truncate(title, 108))}</div>
+        <div class="item-sub item-summary">${escapeHtml(truncate(doiSummary, 180))}</div>
         <div class="item-sub">${escapeHtml(truncate(reason, 120))}</div>
         ${renderLinkBlock(result, reference)}
         ${renderConflictList(result?.conflicts || [])}
@@ -627,8 +681,10 @@ function renderAnchorEvidence(anchorResult) {
   const rows = linked
     .map((referenceResult) => {
       const meta = statusMeta(referenceResult.status || "white");
+      const doiSummary = buildDoiVerificationSummary(referenceResult, null);
       return `<div class="linked-ref">
         <div class="item-sub"><strong>[${escapeHtml(referenceResult.ref_id)}]</strong> 元数据：${meta.text}</div>
+        <div class="item-sub item-summary">${escapeHtml(truncate(doiSummary, 180))}</div>
         <div class="item-sub">${escapeHtml(truncate(referenceResult.reason || "无说明。", 120))}</div>
         ${renderLinkBlock(referenceResult, null)}
         ${renderConflictList(referenceResult.conflicts || [])}

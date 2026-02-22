@@ -455,6 +455,11 @@ button {
   color: #4f5f72;
 }
 
+.item-summary {
+  font-weight: 600;
+  color: #23415c;
+}
+
 .risk-reason {
   margin-top: 6px;
   padding: 5px 7px;
