@@ -26,6 +26,85 @@ body {
   overflow-x: hidden;
 }
 
+.scansci-app {
+  padding-top: 40px;
+}
+
+.scansci-global-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1100;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 14px;
+  border-bottom: 1px solid #d6c9b4;
+  background: rgba(252, 247, 236, 0.94);
+  backdrop-filter: blur(6px);
+}
+
+.scansci-global-nav__home {
+  text-decoration: none;
+  color: #204b62;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.scansci-global-nav__home:hover {
+  color: #0f766e;
+}
+
+.scansci-global-menu {
+  position: relative;
+}
+
+.scansci-global-menu summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  color: #30475a;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid #d9ccb8;
+  background: #fff9ec;
+}
+
+.scansci-global-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.scansci-global-menu__panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 210px;
+  border: 1px solid #d6c9b4;
+  border-radius: 10px;
+  background: #fffdf8;
+  box-shadow: 0 10px 22px rgba(28, 42, 64, 0.16);
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+}
+
+.scansci-global-menu__panel a {
+  text-decoration: none;
+  color: #2b455e;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 8px;
+  border-radius: 7px;
+}
+
+.scansci-global-menu__panel a:hover {
+  background: #f2efe7;
+}
+
 .background-grid {
   position: fixed;
   inset: 0;
@@ -917,6 +996,14 @@ button {
 @media (max-width: 680px) {
   .page {
     padding: 12px 10px 18px;
+  }
+
+  .scansci-global-nav {
+    padding: 0 10px;
+  }
+
+  .scansci-global-menu__panel {
+    min-width: 180px;
   }
 
   .panel-top {

@@ -10,9 +10,22 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;700&family=Noto+Serif+SC:wght@500;700&display=swap"
       rel="stylesheet"
     />
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
-  <body>
+  <body class="scansci-app">
+    <nav class="scansci-global-nav">
+      <a class="scansci-global-nav__home" href="https://www.scansci.com">ScanSci 首页</a>
+      <details class="scansci-global-menu">
+        <summary>应用导航</summary>
+        <div class="scansci-global-menu__panel">
+          <a href="https://dataset.scansci.com">DataRaven</a>
+          <a href="https://journal.scansci.com">Journal Scout</a>
+          <a href="https://citation.scansci.com">Citation Integrity Lab</a>
+        </div>
+      </details>
+    </nav>
+
     <div class="background-orb orb-a"></div>
     <div class="background-orb orb-b"></div>
     <div class="background-grid"></div>
