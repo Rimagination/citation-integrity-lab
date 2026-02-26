@@ -53,6 +53,27 @@ const renderedText = document.getElementById("renderedText");
 const detailPanel = document.getElementById("detailPanel");
 const correctedPanel = document.getElementById("correctedPanel");
 
+const DEFAULT_API_ORIGIN = "https://citation-integrity-lab.onrender.com";
+
+function resolveApiOrigin() {
+  const host = String(window.location.hostname || "").toLowerCase();
+  const isLocalHost = host === "localhost" || host === "127.0.0.1";
+  const isBackendHost = host.endsWith(".onrender.com");
+  if (isLocalHost || isBackendHost) {
+    return "";
+  }
+  return DEFAULT_API_ORIGIN;
+}
+
+const API_ORIGIN = resolveApiOrigin();
+
+function buildApiUrl(path) {
+  if (!API_ORIGIN) {
+    return path;
+  }
+  return `${API_ORIGIN}${path}`;
+}
+
 function escapeHtml(value) {
   return (value ?? "")
     .replaceAll("&", "&amp;")
@@ -887,7 +908,7 @@ async function runAnalysis() {
   runState.textContent = "正在核查...";
 
   try {
-    const response = await fetch("/api/analyze", {
+    const response = await fetch(buildApiUrl("/api/analyze"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, mode: state.mode }),
