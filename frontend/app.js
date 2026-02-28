@@ -53,7 +53,7 @@ const renderedText = document.getElementById("renderedText");
 const detailPanel = document.getElementById("detailPanel");
 const correctedPanel = document.getElementById("correctedPanel");
 
-const DEFAULT_API_ORIGIN = "https://citation-integrity-lab.onrender.com";
+const DEFAULT_API_ORIGIN = "https://www.scansci.com";
 
 function resolveApiOrigin() {
   const host = String(window.location.hostname || "").toLowerCase();
@@ -66,6 +66,7 @@ function resolveApiOrigin() {
 }
 
 const API_ORIGIN = resolveApiOrigin();
+const ANALYZE_PATH = API_ORIGIN ? "/api/citation/analyze" : "/api/analyze";
 
 function buildApiUrl(path) {
   if (!API_ORIGIN) {
@@ -908,7 +909,7 @@ async function runAnalysis() {
   runState.textContent = "正在核查...";
 
   try {
-    const response = await fetch(buildApiUrl("/api/analyze"), {
+    const response = await fetch(buildApiUrl(ANALYZE_PATH), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, mode: state.mode }),
