@@ -30,6 +30,7 @@ class ParseReference(BaseModel):
     year: Optional[int] = None
     title: Optional[str] = None
     doi: Optional[str] = None
+    journal: Optional[str] = None
 
 
 class CitationAnchor(BaseModel):

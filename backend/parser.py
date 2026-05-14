@@ -295,8 +295,57 @@ def _extract_title(cleaned_ref: str, year: int | None) -> str | None:
             continue
         if re.search(r"\b[A-Z][a-z]+,\s*[A-Z]", candidate):
             continue
+        # Reject volume/page strings like ", 29: 766-779" or "29(3):100-110"
+        if re.match(r"^\s*[,;]?\s*\d+\s*[(:.]", candidate):
+            continue
         return candidate
     return None
+
+
+def _extract_journal(cleaned_ref: str, year: int | None, title: str | None = None) -> str | None:
+    """Extract journal name from formats like 'Authors. Journal Name. Year, Vol: Pages.'
+
+    The journal name sits between the last author segment and the year.
+    """
+    if title:
+        title_start = cleaned_ref.lower().find(title.lower())
+        if title_start >= 0:
+            after_title = cleaned_ref[title_start + len(title) :].strip(" .。;,，")
+            after_title = re.sub(r"^\[[A-Za-z\u4e00-\u9fff/]{1,8}\]\s*", "", after_title)
+            after_title = after_title.strip(" .。;,，")
+            candidate = re.split(r"\s*[,，。.;；]\s*", after_title, maxsplit=1)[0]
+            candidate = _clean_spaces(re.sub(STYLE_TYPE_TAG_RE, "", candidate))
+            lowered = candidate.lower()
+            if (
+                len(candidate) >= 4
+                and not YEAR_RE.search(candidate)
+                and not re.match(r"^\d", candidate)
+                and not lowered.startswith("doi")
+                and "http://" not in lowered
+                and "https://" not in lowered
+            ):
+                return candidate
+
+    year_match = YEAR_RE.search(cleaned_ref) if year else None
+    before_year = cleaned_ref[: year_match.start()].strip(" ,") if year_match else cleaned_ref
+
+    # Split on ". " to isolate author-block vs journal-name segments.
+    parts = [p.strip(" .,;") for p in re.split(r"\.\s+", before_year) if p.strip(" .,;")]
+    if not parts:
+        return None
+
+    # The last segment before the year is most likely the journal name.
+    candidate = parts[-1]
+
+    if len(candidate) < 4:
+        return None
+    # Reject if it still looks like an author list (contains semicolons or typical author patterns).
+    if ";" in candidate:
+        return None
+    # Reject if the candidate looks like a year, volume, or page number.
+    if re.match(r"^\d", candidate):
+        return None
+    return candidate
 
 
 def _should_start_new_reference_entry(stripped_line: str, current_lines: Sequence[str]) -> bool:
@@ -364,6 +413,7 @@ def parse_reference_section(reference_text: str) -> List[ParseReference]:
         authors = _extract_authors(authors_segment)
         first_author = _extract_first_author(authors)
         title = _extract_title(cleaned, year)
+        journal = _extract_journal(cleaned, year, title)
         ref_index = index if index is not None else fallback_idx
         ref_id = str(ref_index)
 
@@ -377,6 +427,7 @@ def parse_reference_section(reference_text: str) -> List[ParseReference]:
                 year=year,
                 title=title,
                 doi=doi,
+                journal=journal,
             )
         )
 

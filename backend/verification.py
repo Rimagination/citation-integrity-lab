@@ -28,6 +28,7 @@ HTTP_HEADERS = {
 }
 
 TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z\-]{1,}|[0-9]+(?:\.[0-9]+)?|[\u4e00-\u9fff]{2,}")
+CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
 DOI_RE = re.compile(r"(10\.\d{4,9}/[-._;()/:A-Z0-9]+)", re.IGNORECASE)
 DOI_TRAILING_PUNCT_RE = re.compile(r"[.,;:!?\"'`\u3002\uff0c\uff1b\uff1a\uff01\uff1f]+$")
 DOI_BRACKET_PAIRS = {
@@ -155,6 +156,88 @@ NEGATION_WORDS = {
     "没有",
     "并非",
     "不",
+}
+
+DIRECTION_INCREASE_WORDS = {
+    "increase",
+    "increases",
+    "increased",
+    "increasing",
+    "improve",
+    "improves",
+    "improved",
+    "improving",
+    "enhance",
+    "enhances",
+    "enhanced",
+    "higher",
+    "rise",
+    "rises",
+    "rose",
+    "rising",
+    "gain",
+    "gains",
+    "positive",
+    "promote",
+    "promotes",
+    "promoted",
+    "提高",
+    "提升",
+    "增加",
+    "上升",
+    "增强",
+    "改善",
+    "增长",
+    "促进",
+    "更高",
+}
+
+DIRECTION_DECREASE_WORDS = {
+    "decrease",
+    "decreases",
+    "decreased",
+    "decreasing",
+    "reduce",
+    "reduces",
+    "reduced",
+    "reducing",
+    "lower",
+    "lowered",
+    "decline",
+    "declines",
+    "declined",
+    "declining",
+    "loss",
+    "losses",
+    "negative",
+    "inhibit",
+    "inhibits",
+    "inhibited",
+    "suppress",
+    "suppresses",
+    "suppressed",
+    "降低",
+    "下降",
+    "减少",
+    "减弱",
+    "损失",
+    "抑制",
+    "负向",
+}
+
+NULL_EFFECT_PATTERNS = {
+    "no significant",
+    "not significant",
+    "non-significant",
+    "did not increase",
+    "does not increase",
+    "no effect",
+    "little effect",
+    "没有显著",
+    "无显著",
+    "不显著",
+    "未显著",
+    "无影响",
 }
 
 DIMENSION_LABELS = {
@@ -415,6 +498,13 @@ def _tokens(text: str) -> List[str]:
     words = [match.group(0).lower() for match in TOKEN_RE.finditer(text or "")]
     normalized: List[str] = []
     for word in words:
+        if CJK_RE.fullmatch(word):
+            if len(word) <= 2:
+                cjk_tokens = [word]
+            else:
+                cjk_tokens = [word[idx : idx + 2] for idx in range(0, len(word) - 1)]
+            normalized.extend(token for token in cjk_tokens if token not in STOPWORDS)
+            continue
         token = word
         if token.endswith("ing") and len(token) > 5:
             token = token[:-3]
@@ -709,39 +799,119 @@ def _extract_crossref_year(message: dict) -> int | None:
     return None
 
 
-async def _query_crossref(client: httpx.AsyncClient, reference: ParseReference) -> OfficialMetadata | None:
-    doi = _normalize_doi(reference.doi)
-    payload: dict | None = None
-    source = "crossref"
+def _official_first_author(official: OfficialMetadata) -> str | None:
+    if not official.authors:
+        return None
+    first = official.authors[0]
+    if "," in first:
+        return first.split(",", maxsplit=1)[0].strip()
+    return first.split(" ", maxsplit=1)[0].strip()
 
-    if doi:
-        payload = await _fetch_json(client, f"https://api.crossref.org/works/{doi}")
-        if payload and payload.get("message"):
-            message = payload["message"]
-        else:
-            message = None
-    else:
-        if not reference.title:
-            return None
-        payload = await _fetch_json(
-            client,
-            "https://api.crossref.org/works",
-            params={"query.bibliographic": reference.title, "rows": 1},
-        )
-        items = (payload or {}).get("message", {}).get("items", [])
-        message = items[0] if items else None
 
-    if not message:
+def _year_similarity(user_year: int | None, official_year: int | None) -> float | None:
+    if not user_year or not official_year:
+        return None
+    gap = abs(user_year - official_year)
+    if gap == 0:
+        return 1.0
+    if gap == 1:
+        return 0.85
+    if gap == 2:
+        return 0.55
+    return 0.0
+
+
+def _metadata_identity_score(reference: ParseReference, official: OfficialMetadata) -> float:
+    user_doi = _normalize_doi(reference.doi)
+    official_doi = _normalize_doi(official.doi)
+    if user_doi and official_doi:
+        return 1.0 if user_doi == official_doi else 0.0
+
+    weighted_scores: List[Tuple[float, float]] = []
+    if reference.title and official.title:
+        weighted_scores.append((_text_similarity(reference.title, official.title), 0.56))
+
+    official_first_author = _official_first_author(official)
+    if reference.first_author and official_first_author:
+        weighted_scores.append((_text_similarity(reference.first_author, official_first_author), 0.20))
+
+    year_score = _year_similarity(reference.year, official.year)
+    if year_score is not None:
+        weighted_scores.append((year_score, 0.14))
+
+    if reference.journal and official.journal:
+        weighted_scores.append((_text_similarity(reference.journal, official.journal), 0.10))
+
+    if not weighted_scores:
+        return 0.0
+
+    total_weight = sum(weight for _, weight in weighted_scores)
+    return sum(score * weight for score, weight in weighted_scores) / total_weight
+
+
+def _plausible_metadata_match(reference: ParseReference, official: OfficialMetadata) -> bool:
+    user_doi = _normalize_doi(reference.doi)
+    official_doi = _normalize_doi(official.doi)
+    if user_doi:
+        return bool(official_doi and user_doi == official_doi)
+
+    title_sim = _text_similarity(reference.title or "", official.title or "") if reference.title else None
+    author_sim = _text_similarity(reference.first_author or "", _official_first_author(official) or "")
+    year_score = _year_similarity(reference.year, official.year)
+    journal_sim = _text_similarity(reference.journal or "", official.journal or "") if reference.journal else None
+    identity_score = _metadata_identity_score(reference, official)
+
+    if reference.title:
+        if title_sim is not None and title_sim >= 0.86:
+            return True
+        supporting_fields = 0
+        if author_sim >= 0.55:
+            supporting_fields += 1
+        if year_score is not None and year_score >= 0.85:
+            supporting_fields += 1
+        if journal_sim is not None and journal_sim >= 0.70:
+            supporting_fields += 1
+        return bool(title_sim is not None and title_sim >= 0.72 and supporting_fields >= 1)
+
+    # Without title or DOI, keep the candidate only as weak evidence.
+    return identity_score >= 0.55
+
+
+def _pick_best_metadata_candidate(
+    reference: ParseReference,
+    candidates: Sequence[OfficialMetadata | None],
+) -> OfficialMetadata | None:
+    viable = [candidate for candidate in candidates if candidate]
+    if not viable:
         return None
 
+    scored: List[Tuple[float, float, int, int, OfficialMetadata]] = []
+    for candidate in viable:
+        if not _plausible_metadata_match(reference, candidate):
+            continue
+        title_score = _text_similarity(reference.title or "", candidate.title or "")
+        scored.append(
+            (
+                _metadata_identity_score(reference, candidate),
+                title_score,
+                1 if candidate.abstract else 0,
+                SOURCE_PRIORITY.get(candidate.source, 0),
+                candidate,
+            )
+        )
+
+    if not scored:
+        return None
+    return max(scored, key=lambda item: item[:4])[4]
+
+
+def _crossref_message_to_metadata(message: dict) -> OfficialMetadata:
     title = None
     title_field = message.get("title")
     if isinstance(title_field, list) and title_field:
         title = title_field[0]
     elif isinstance(title_field, str):
         title = title_field
-
-    year = _extract_crossref_year(message)
 
     journal = None
     journal_field = message.get("container-title")
@@ -750,52 +920,22 @@ async def _query_crossref(client: httpx.AsyncClient, reference: ParseReference) 
     elif isinstance(journal_field, str):
         journal = journal_field
 
-    doi_value = _normalize_doi(message.get("DOI"))
-    url = message.get("URL")
-    abstract = _strip_html(message.get("abstract"))
-
     return OfficialMetadata(
-        source=source,
+        source="crossref",
         title=_clean_spaces(title or ""),
         authors=_extract_crossref_authors(message.get("author")),
         journal=_clean_spaces(journal or "") or None,
-        year=year,
-        doi=doi_value,
-        url=url,
-        abstract=abstract,
+        year=_extract_crossref_year(message),
+        doi=_normalize_doi(message.get("DOI")),
+        url=message.get("URL"),
+        abstract=_strip_html(message.get("abstract")),
     )
 
 
-async def _query_openalex(client: httpx.AsyncClient, reference: ParseReference) -> OfficialMetadata | None:
-    doi = _normalize_doi(reference.doi)
-    if doi:
-        payload = await _fetch_json(
-            client,
-            "https://api.openalex.org/works",
-            params={"filter": f"doi:https://doi.org/{doi}", "per-page": 1},
-        )
-    else:
-        if not reference.title:
-            return None
-        payload = await _fetch_json(
-            client,
-            "https://api.openalex.org/works",
-            params={"search": reference.title, "per-page": 1},
-        )
-
-    works = (payload or {}).get("results", [])
-    if not works:
-        return None
-    item = works[0]
-
+def _openalex_work_to_metadata(item: dict) -> OfficialMetadata:
     source_meta = item.get("primary_location", {}).get("source") or {}
     journal = source_meta.get("display_name")
-    doi_value = _normalize_doi(item.get("doi"))
-    abstract = _decode_openalex_abstract(item.get("abstract_inverted_index"))
-    url = item.get("id")
-    title = item.get("display_name")
     year = item.get("publication_year")
-
     try:
         year = int(year) if year is not None else None
     except (TypeError, ValueError):
@@ -803,38 +943,17 @@ async def _query_openalex(client: httpx.AsyncClient, reference: ParseReference) 
 
     return OfficialMetadata(
         source="openalex",
-        title=_clean_spaces(title or ""),
+        title=_clean_spaces(item.get("display_name") or item.get("title") or ""),
         authors=_extract_openalex_authors(item.get("authorships")),
         journal=_clean_spaces(journal or "") or None,
         year=year,
-        doi=doi_value,
-        url=url,
-        abstract=abstract,
+        doi=_normalize_doi(item.get("doi")),
+        url=item.get("id"),
+        abstract=_decode_openalex_abstract(item.get("abstract_inverted_index")),
     )
 
 
-async def _query_datacite(client: httpx.AsyncClient, reference: ParseReference) -> OfficialMetadata | None:
-    doi = _normalize_doi(reference.doi)
-    payload: dict | None = None
-    data: dict | None = None
-
-    if doi:
-        payload = await _fetch_json(client, f"https://api.datacite.org/dois/{doi}")
-        data = (payload or {}).get("data")
-    else:
-        if not reference.title:
-            return None
-        payload = await _fetch_json(
-            client,
-            "https://api.datacite.org/dois",
-            params={"query": reference.title, "page[size]": 1},
-        )
-        data_items = (payload or {}).get("data") or []
-        data = data_items[0] if data_items else None
-
-    if not data:
-        return None
-
+def _datacite_item_to_metadata(data: dict) -> OfficialMetadata:
     attributes = data.get("attributes") or {}
     titles = attributes.get("titles") or []
     title = None
@@ -864,6 +983,140 @@ async def _query_datacite(client: httpx.AsyncClient, reference: ParseReference) 
     )
 
 
+def _semantic_item_to_metadata(item: dict) -> OfficialMetadata:
+    journal = (item.get("journal") or {}).get("name")
+    year = item.get("year")
+    try:
+        year = int(year) if year is not None else None
+    except (TypeError, ValueError):
+        year = None
+
+    return OfficialMetadata(
+        source="semanticscholar",
+        title=_clean_spaces(item.get("title") or ""),
+        authors=_extract_semantic_authors(item.get("authors")),
+        journal=_clean_spaces(journal or "") or None,
+        year=year,
+        doi=_normalize_doi((item.get("externalIds") or {}).get("DOI")),
+        url=item.get("url"),
+        abstract=_clean_spaces(item.get("abstract") or "") or None,
+    )
+
+
+async def _query_crossref(client: httpx.AsyncClient, reference: ParseReference) -> OfficialMetadata | None:
+    doi = _normalize_doi(reference.doi)
+    payload: dict | None = None
+
+    if doi:
+        payload = await _fetch_json(client, f"https://api.crossref.org/works/{doi}")
+        if payload and payload.get("message"):
+            message = payload["message"]
+        else:
+            message = None
+        return _crossref_message_to_metadata(message) if message else None
+    else:
+        if not reference.title:
+            # Fallback: query by journal name + first author + year when title is absent.
+            has_journal = bool(reference.journal)
+            has_author = bool(reference.first_author)
+            if not has_journal and not has_author:
+                return None
+            params: dict = {"rows": 5}
+            if has_author:
+                params["query.author"] = reference.first_author
+            if has_journal:
+                params["query.container-title"] = reference.journal
+            if reference.year:
+                params["filter"] = (
+                    f"from-pub-date:{reference.year},until-pub-date:{reference.year}"
+                )
+            payload = await _fetch_json(
+                client, "https://api.crossref.org/works", params=params
+            )
+            items = (payload or {}).get("message", {}).get("items", [])
+            message = items[0] if items else None
+        else:
+            payload = await _fetch_json(
+                client,
+                "https://api.crossref.org/works",
+                params={"query.bibliographic": reference.title, "rows": 5},
+            )
+        items = (payload or {}).get("message", {}).get("items", [])
+        candidates = [_crossref_message_to_metadata(item) for item in items]
+        return _pick_best_metadata_candidate(reference, candidates)
+
+
+async def _query_openalex(client: httpx.AsyncClient, reference: ParseReference) -> OfficialMetadata | None:
+    doi = _normalize_doi(reference.doi)
+    if doi:
+        payload = await _fetch_json(
+            client,
+            "https://api.openalex.org/works",
+            params={"filter": f"doi:https://doi.org/{doi}", "per-page": 1},
+        )
+    else:
+        if not reference.title:
+            # Fallback: filter by journal + year, search by first author when title is absent.
+            has_journal = bool(reference.journal)
+            has_author = bool(reference.first_author)
+            if not has_journal and not has_author:
+                return None
+            filters: list[str] = []
+            if reference.year:
+                filters.append(f"publication_year:{reference.year}")
+            if has_journal:
+                filters.append(
+                    f"primary_location.source.display_name.search:{reference.journal}"
+                )
+            search_params: dict = {"per-page": 5}
+            if filters:
+                search_params["filter"] = ",".join(filters)
+            if has_author:
+                search_params["search"] = reference.first_author
+            payload = await _fetch_json(
+                client, "https://api.openalex.org/works", params=search_params
+            )
+        else:
+            payload = await _fetch_json(
+                client,
+                "https://api.openalex.org/works",
+                params={"search": reference.title, "per-page": 5},
+            )
+
+    works = (payload or {}).get("results", [])
+    if not works:
+        return None
+    candidates = [_openalex_work_to_metadata(item) for item in works]
+    if doi:
+        return candidates[0]
+    return _pick_best_metadata_candidate(reference, candidates)
+
+
+async def _query_datacite(client: httpx.AsyncClient, reference: ParseReference) -> OfficialMetadata | None:
+    doi = _normalize_doi(reference.doi)
+    payload: dict | None = None
+    data: dict | None = None
+
+    if doi:
+        payload = await _fetch_json(client, f"https://api.datacite.org/dois/{doi}")
+        data = (payload or {}).get("data")
+    else:
+        if not reference.title:
+            return None
+        payload = await _fetch_json(
+            client,
+            "https://api.datacite.org/dois",
+            params={"query": reference.title, "page[size]": 5},
+        )
+        data_items = (payload or {}).get("data") or []
+        candidates = [_datacite_item_to_metadata(item) for item in data_items]
+        return _pick_best_metadata_candidate(reference, candidates)
+
+    if not data:
+        return None
+    return _datacite_item_to_metadata(data)
+
+
 async def _query_semanticscholar(
     client: httpx.AsyncClient,
     reference: ParseReference,
@@ -881,36 +1134,33 @@ async def _query_semanticscholar(
         item = payload
     else:
         if not reference.title:
-            return None
-        payload = await _fetch_json(
-            client,
-            "https://api.semanticscholar.org/graph/v1/paper/search",
-            params={"query": reference.title, "limit": 1, "fields": fields},
-        )
+            # Fallback: build a keyword query from available metadata when title is absent.
+            if not reference.first_author:
+                return None
+            query_parts: list[str] = [reference.first_author]
+            if reference.year:
+                query_parts.append(str(reference.year))
+            if reference.journal:
+                query_parts.append(reference.journal)
+            fallback_query = " ".join(query_parts)
+            payload = await _fetch_json(
+                client,
+                "https://api.semanticscholar.org/graph/v1/paper/search",
+                params={"query": fallback_query, "limit": 5, "fields": fields},
+            )
+        else:
+            payload = await _fetch_json(
+                client,
+                "https://api.semanticscholar.org/graph/v1/paper/search",
+                params={"query": reference.title, "limit": 5, "fields": fields},
+            )
         candidates = (payload or {}).get("data") or []
-        item = candidates[0] if candidates else None
+        metadata_candidates = [_semantic_item_to_metadata(item) for item in candidates if item and not item.get("error")]
+        return _pick_best_metadata_candidate(reference, metadata_candidates)
 
     if not item or item.get("error"):
         return None
-
-    journal = (item.get("journal") or {}).get("name")
-    year = item.get("year")
-    try:
-        year = int(year) if year is not None else None
-    except (TypeError, ValueError):
-        year = None
-
-    doi_value = _normalize_doi((item.get("externalIds") or {}).get("DOI"))
-    return OfficialMetadata(
-        source="semanticscholar",
-        title=_clean_spaces(item.get("title") or ""),
-        authors=_extract_semantic_authors(item.get("authors")),
-        journal=_clean_spaces(journal or "") or None,
-        year=year,
-        doi=doi_value,
-        url=item.get("url"),
-        abstract=_clean_spaces(item.get("abstract") or "") or None,
-    )
+    return _semantic_item_to_metadata(item)
 
 
 def _metadata_conflicts(
@@ -1040,6 +1290,14 @@ def _metadata_conflicts(
                 )
             )
 
+    weak_identity_input = not user_doi and not reference.title
+    if weak_identity_input and not critical:
+        # Author/journal/year fallback can find plausible records, but it cannot
+        # prove identity the way a DOI or title match can.
+        if conflicts:
+            return conflicts, "yellow", 0.45
+        return conflicts, "white", 0.45
+
     if critical:
         return conflicts, "red", 0.2
     if conflicts:
@@ -1049,11 +1307,19 @@ def _metadata_conflicts(
 
 def _pick_official(
     source_metadata: Dict[str, OfficialMetadata | None],
-    user_title: str | None,
+    user_title: str | None = None,
+    reference: ParseReference | None = None,
 ) -> OfficialMetadata | None:
     candidates = [item for item in source_metadata.values() if item]
     if not candidates:
         return None
+
+    if reference:
+        official = _pick_best_metadata_candidate(reference, candidates)
+        if official:
+            return official
+        if reference.title or reference.doi:
+            return None
 
     def _score(meta: OfficialMetadata) -> Tuple[float, int, int]:
         title_score = _text_similarity(user_title or "", meta.title or "")
@@ -1167,8 +1433,26 @@ async def verify_reference_metadata(
     found_sources = _sources_found(source_metadata)
     source_links = _build_source_links(source_metadata, reference)
 
-    official = _pick_official(source_metadata, reference.title)
+    official = _pick_official(source_metadata, reference=reference)
     if not official:
+        # Distinguish between "no verifiable info in citation" vs "info present but not found".
+        has_searchable_info = bool(reference.title or reference.doi)
+        if not has_searchable_info:
+            return ReferenceVerification(
+                ref_id=reference.ref_id,
+                status="white",
+                label=DIMENSION_LABELS["metadata"]["white"],
+                reason=(
+                    "引用格式未包含论文标题或 DOI，数据库检索无结果，"
+                    "建议补充完整引用信息以供核验。"
+                ),
+                score=0.35,
+                official=None,
+                conflicts=[],
+                sources_found=found_sources,
+                source_links=source_links,
+                citation_suggestions={},
+            )
         return ReferenceVerification(
             ref_id=reference.ref_id,
             status="red",
@@ -1206,6 +1490,11 @@ async def verify_reference_metadata(
         reason = f"多源命中（{source_summary}），标题/年份整体匹配。"
     elif status == "yellow":
         reason = f"多源命中（{source_summary}），但存在字段偏差（{len(conflicts)} 项）。"
+    elif status == "white":
+        reason = (
+            f"多源命中（{source_summary}），但原始条目缺少标题或 DOI，"
+            "只能视为弱身份线索，需人工确认是否为同一文献。"
+        )
     else:
         reason = f"多源命中（{source_summary}），但核心字段冲突（{len(conflicts)} 项）。"
 
@@ -1295,6 +1584,42 @@ def _has_negation(text: str) -> bool:
     return any(term in lowered for term in NEGATION_WORDS)
 
 
+def _contains_direction_term(text: str, terms: set[str]) -> bool:
+    lowered = (text or "").lower()
+    for term in terms:
+        if re.search(r"[\u4e00-\u9fff]", term):
+            if term in lowered:
+                return True
+            continue
+        if re.search(rf"\b{re.escape(term)}\b", lowered):
+            return True
+    return False
+
+
+def _directionality(text: str) -> set[str]:
+    directions: set[str] = set()
+    lowered = (text or "").lower()
+    if any(pattern in lowered for pattern in NULL_EFFECT_PATTERNS):
+        directions.add("null")
+    if _contains_direction_term(lowered, DIRECTION_INCREASE_WORDS):
+        directions.add("increase")
+    if _contains_direction_term(lowered, DIRECTION_DECREASE_WORDS):
+        directions.add("decrease")
+    return directions
+
+
+def _has_directional_conflict(claim: str, evidence: str | None) -> bool:
+    claim_direction = _directionality(claim)
+    evidence_direction = _directionality(evidence or "")
+    if not claim_direction or not evidence_direction:
+        return False
+    if "increase" in claim_direction and ("decrease" in evidence_direction or "null" in evidence_direction):
+        return True
+    if "decrease" in claim_direction and ("increase" in evidence_direction or "null" in evidence_direction):
+        return True
+    return False
+
+
 def _fuzzy_coverage(claim_tokens: Iterable[str], abstract_tokens: Iterable[str]) -> float:
     claim_set = set(claim_tokens)
     abstract_set = set(abstract_tokens)
@@ -1338,7 +1663,9 @@ def evaluate_support(
         )
 
     coverage = _fuzzy_coverage(claim_tokens, abstract_tokens)
-    negation_conflict = _has_negation(claim) != _has_negation(reference_text)
+    evidence_text_for_logic = evidence_sentence or reference_text
+    negation_conflict = _has_negation(claim) != _has_negation(evidence_text_for_logic)
+    directional_conflict = _has_directional_conflict(claim, evidence_text_for_logic)
 
     context_intent = _classify_intent(context or claim)
     is_background_context = context_intent == "background"
@@ -1366,7 +1693,14 @@ def evaluate_support(
 
     # Tightened red condition: support turns red only when contradiction is clear
     # or in strict contexts with extremely low overlap.
-    if negation_conflict and (similarity >= 0.12 or evidence_score >= 0.12):
+    if directional_conflict and (coverage >= 0.18 or similarity >= 0.10 or evidence_score >= 0.10):
+        status = "red"
+        score = 0.15
+        reason = (
+            f"检测到方向性结论冲突（覆盖率={coverage:.3f}, 相似度={similarity:.3f}, "
+            f"证据句匹配={evidence_score:.3f}）。"
+        )
+    elif negation_conflict and (similarity >= 0.12 or evidence_score >= 0.12):
         status = "red"
         score = 0.15
         reason = (
