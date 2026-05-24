@@ -1,6 +1,6 @@
-# 引文深度核查工具（Web）
+# 引文核查工具（Web）
 
-基于 `jiansuo/检索prd.md` 实现的可部署网页应用：
+基于 `检索prd.md` 实现的可部署网页应用：
 
 - 单输入框粘贴正文 + 参考文献
 - 自动识别正文引用锚点（`[1]` / `(Author, Year)`）
@@ -10,7 +10,7 @@
 ## 1. 本地运行
 
 ```bash
-cd jiansuo
+cd citation-lab
 python -m venv .venv
 # Windows
 .venv\Scripts\activate
@@ -38,9 +38,9 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8000
 
 1. 新建 Web Service，连接代码仓库。
 2. 设置：
-   - Build Command: `pip install -r jiansuo/requirements.txt`
+   - Build Command: `pip install -r requirements.txt`
    - Start Command: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
-   - Root Directory: `jiansuo`
+   - Root Directory: `.`
 3. 部署完成后会得到 `https://xxxx.onrender.com`，把这个链接发给别人即可使用。
 
 ## 4. 当前实现说明

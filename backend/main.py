@@ -21,9 +21,9 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = BASE_DIR / "frontend"
 
 app = FastAPI(
-    title="Citation Deep Verifier",
+    title="Citation Lab",
     version="0.1.0",
-    description="AI 生成文本引文深度核查工具",
+    description="AI 生成文本引文核查工具",
 )
 
 app.add_middleware(

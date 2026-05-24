@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: citation-integrity-lab
+    name: citation-lab
     runtime: python
     plan: free
     branch: main
