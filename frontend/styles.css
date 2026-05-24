@@ -47,14 +47,52 @@ body {
   backdrop-filter: blur(6px);
 }
 
-.scansci-global-nav__home {
-  text-decoration: none;
-  color: #204b62;
-  font-size: 12px;
-  font-weight: 700;
+.brand-cluster {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 
-.scansci-global-nav__home:hover {
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #4f5f72;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.brand:hover {
+  color: #0f766e;
+}
+
+.brand-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px rgba(16, 34, 54, 0.1), 0 2px 6px rgba(16, 34, 54, 0.08);
+}
+
+.brand-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(16, 34, 54, 0.15);
+}
+
+.product-brand {
+  color: #1f2a37;
+  font-family: "Noto Serif SC", "Source Han Serif SC", serif;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.product-brand:hover {
   color: #0f766e;
 }
 
